@@ -18,103 +18,149 @@ const token = process.env.TELEGRAM_TOKEN; // Читаем токен из .env
 const bot = new TelegramBot(token, { polling: true }); // Включаем режим опроса (polling)
 
 // Структура для хранения информации о пользователях
-let users = {}; // Для хранения пользователей и их партнёров
+let users = {}; // Для хранения пользователей, их статусов, партнёров, пола и предпочтений
 
-// WebSocket логика
+// WebSocket логика для пользователей с вебсайта
 io.on('connection', (socket) => {
-    console.log('Пользователь подключился:', socket.id);
+    console.log('Пользователь подключился с вебсайта:', socket.id);
 
-    // Когда пользователь подключается, сохраняем его
-    users[socket.id] = { partnerId: null };
+    // Инициализация пользователя со статусом "waiting" и запросом пола и предпочтений
+    users[socket.id] = { partnerId: null, status: 'waiting', gender: null, lookingFor: null, isWebUser: true };
 
-    // Ловим событие, когда пользователь хочет найти собеседника
-    socket.on('findPartner', () => {
-        // Ищем другого пользователя без партнёра
-        let partnerId = Object.keys(users).find(id => users[id].partnerId === null && id !== socket.id);
-
-        if (partnerId) {
-            // Связываем пользователей друг с другом
-            users[socket.id].partnerId = partnerId;
-            users[partnerId].partnerId = socket.id;
-
-            // Отправляем уведомление пользователям
-            io.to(socket.id).emit('partnerFound', { partnerId });
-            io.to(partnerId).emit('partnerFound', { partnerId: socket.id });
-
-            console.log(`Пользователь ${socket.id} нашел собеседника ${partnerId}`);
-        } else {
-            // Если нет свободных пользователей, сообщаем об ожидании
-            io.to(socket.id).emit('waitingForPartner');
-            console.log(`Пользователь ${socket.id} ждет собеседника`);
-        }
+    // Ловим событие выбора пола
+    socket.on('selectGender', (gender) => {
+        users[socket.id].gender = gender;
+        console.log(`Пользователь ${socket.id} выбрал пол: ${gender}`);
     });
 
-    // Ловим событие отправки сообщения от клиента
+    // Ловим событие выбора предпочтений
+    socket.on('selectLookingFor', (lookingFor) => {
+        users[socket.id].lookingFor = lookingFor;
+        console.log(`Пользователь ${socket.id} ищет: ${lookingFor}`);
+        findPartnerForUser(socket.id);
+    });
+
+    // Ловим событие отправки сообщения от веб-клиента
     socket.on('sendMessage', (message) => {
         const partnerId = users[socket.id].partnerId;
 
-        if (partnerId) {
-            // Отправляем сообщение только партнёру
-            io.to(partnerId).emit('receiveMessage', message);
-            console.log(`Сообщение от ${socket.id} к ${partnerId}: ${message}`);
+        if (partnerId && users[partnerId]) {
+            if (users[partnerId].isWebUser) {
+                // Если собеседник — веб-пользователь, передаём сообщение через WebSocket
+                io.to(partnerId).emit('receiveMessage', message);
+            } else {
+                // Если собеседник — пользователь Telegram, отправляем сообщение через Telegram Bot API
+                bot.sendMessage(partnerId, message);
+            }
         } else {
-            // Если партнёр не найден, сообщаем пользователю
-            io.to(socket.id).emit('noPartner', 'Партнёр не найден.');
+            socket.emit('noPartner', 'Партнёр не найден.');
         }
     });
-
-    // Ловим событие завершения диалога
-    socket.on('endChat', () => {
-        const partnerId = users[socket.id].partnerId;
-
-        if (partnerId) {
-            // Отключаем партнёра, если он был
-            users[partnerId].partnerId = null;
-            io.to(partnerId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
-        }
-
-        // Освобождаем текущего пользователя
-        users[socket.id].partnerId = null;
-        io.to(socket.id).emit('chatEnded', 'Вы завершили диалог. Теперь вы можете найти нового собеседника.');
-        console.log(`Пользователь ${socket.id} завершил диалог с ${partnerId}`);
-    });
-
 
     // Ловим событие отключения
     socket.on('disconnect', () => {
         const partnerId = users[socket.id].partnerId;
-
         if (partnerId) {
-            // Отключаем партнёра, если он был
+            if (users[partnerId].isWebUser) {
+                io.to(partnerId).emit('partnerDisconnected', 'Ваш собеседник отключился.');
+            } else {
+                bot.sendMessage(partnerId, 'Ваш собеседник с вебсайта отключился.');
+            }
             users[partnerId].partnerId = null;
-            io.to(partnerId).emit('partnerDisconnected', 'Ваш собеседник отключился.');
         }
-
-        // Удаляем пользователя из списка
         delete users[socket.id];
         console.log('Пользователь отключился:', socket.id);
     });
 });
 
-// Обработка команды /start от Telegram-бота
+// Обработка команды /start для Telegram-бота
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
 
-    // Отправляем приветственное сообщение пользователю в Telegram
-    bot.sendMessage(chatId, 'Привет! Вы подключены к боту.');
+    // Инициализируем пользователя
+    users[chatId] = { partnerId: null, status: 'waiting', gender: null, lookingFor: null, isWebUser: false };
+
+    // Запрашиваем пол у пользователя
+    bot.sendMessage(chatId, 'Привет! Пожалуйста, выберите свой пол:', {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: 'Мужской', callback_data: 'male' }],
+                [{ text: 'Женский', callback_data: 'female' }]
+            ]
+        }
+    });
 });
 
-// Обработка любых текстовых сообщений от Telegram-пользователей
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
+// Обработка выбора пола
+bot.on('callback_query', (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const gender = callbackQuery.data; // Ловим пол (male/female)
 
-    // Логируем сообщение в консоль
-    console.log(`Сообщение от Telegram пользователя ${chatId}: ${text}`);
+    // Сохраняем пол пользователя
+    users[chatId].gender = gender;
 
-    // Отправляем сообщение в WebSocket всем клиентам
-    io.emit('receiveMessage', `Сообщение от Telegram: ${text}`);
+    // Запрашиваем предпочтение для поиска
+    bot.sendMessage(chatId, 'Кого вы хотите найти?', {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: 'Мужчин', callback_data: 'looking_male' }],
+                [{ text: 'Женщин', callback_data: 'looking_female' }]
+            ]
+        }
+    });
 });
+
+// Обработка выбора предпочтения поиска
+bot.on('callback_query', (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const data = callbackQuery.data;
+
+    if (data === 'looking_male' || data === 'looking_female') {
+        // Сохраняем предпочтение поиска
+        users[chatId].lookingFor = data === 'looking_male' ? 'male' : 'female';
+
+        bot.sendMessage(chatId, `Спасибо! Вы выбрали искать ${users[chatId].lookingFor === 'male' ? 'мужчин' : 'женщин'}. Теперь ищем вам собеседника...`);
+        findPartnerForUser(chatId);
+    }
+});
+
+// Функция для поиска партнёра
+function findPartnerForUser(userId) {
+    const user = users[userId];
+
+    // Ищем свободного партнёра с подходящими параметрами
+    let partnerId = Object.keys(users).find(id => {
+        const potentialPartner = users[id];
+        return potentialPartner.partnerId === null && id !== userId && potentialPartner.gender === user.lookingFor;
+    });
+
+    if (partnerId) {
+        // Связываем пользователей
+        users[userId].partnerId = partnerId;
+        users[partnerId].partnerId = userId;
+
+        users[userId].status = 'chatting';
+        users[partnerId].status = 'chatting';
+
+        // Уведомляем пользователей
+        if (users[partnerId].isWebUser) {
+            io.to(partnerId).emit('partnerFound', { partnerId: userId, isTelegramUser: !users[userId].isWebUser });
+            if (!users[userId].isWebUser) {
+                bot.sendMessage(userId, 'Собеседник найден! Вы общаетесь с пользователем с вебсайта.');
+            }
+        } else {
+            bot.sendMessage(userId, 'Собеседник найден! Можете начинать общение.');
+            bot.sendMessage(partnerId, 'Собеседник найден! Можете начинать общение.');
+        }
+    } else {
+        // Если нет партнёра
+        if (users[userId].isWebUser) {
+            io.to(userId).emit('waitingForPartner');
+        } else {
+            bot.sendMessage(userId, 'Ищу собеседника, пожалуйста подождите...');
+        }
+    }
+}
 
 // Запускаем сервер на порту 3000
 const PORT = 3000;

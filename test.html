@@ -1,97 +1,84 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Client</title>
+    <title>Web Chat</title>
 </head>
-
 <body>
-    <h1>WebSocket Client</h1>
+    <h1>Выберите ваш пол</h1>
+    <button id="maleBtn">Мужской</button>
+    <button id="femaleBtn">Женский</button>
 
-    <div>
-        <input type="text" id="messageInput" placeholder="Введите сообщение">
-        <button id="sendBtn">Отправить</button>
-        <button id="findPartnerBtn">Найти собеседника</button>
-        <button id="endChatBtn">Завершить диалог</button>
-    </div>
+    <h2>Кого хотите найти?</h2>
+    <button id="lookingForMaleBtn">Мужчин</button>
+    <button id="lookingForFemaleBtn">Женщин</button>
 
-    <div id="messages">
-        <h3>Сообщения:</h3>
-    </div>
+    <h2>Чат</h2>
+    <div id="messages"></div>
+    <input type="text" id="messageInput" placeholder="Введите сообщение...">
+    <button id="sendBtn">Отправить</button>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
 
-        // Когда подключились, выводим сообщение
-        socket.on('connect', () => {
-            console.log('Подключен к WebSocket:', socket.id);
-        });
-
-        // Когда происходит отключение
-        socket.on('disconnect', () => {
-            console.log('Отключен от WebSocket');
-        });
-
-        // Обработка кнопки "Найти собеседника"
-        const findPartnerBtn = document.getElementById('findPartnerBtn');
-        findPartnerBtn.addEventListener('click', () => {
-            socket.emit('findPartner'); // Отправляем запрос на поиск собеседника
-        });
-
-        // Когда найден собеседник
-        socket.on('partnerFound', (data) => {
-            console.log('Собеседник найден:', data.partnerId);
-            alert('Собеседник найден!');
-        });
-
-        // Когда нет собеседника, ждём
-        socket.on('waitingForPartner', () => {
-            console.log('Ожидание собеседника...');
-            alert('Ожидание собеседника...');
-        });
-
-        // Когда собеседник отключается
-        socket.on('partnerDisconnected', (message) => {
-            console.log(message);
-            alert(message);
-        });
-
-        // Отправка сообщения на сервер
+        const maleBtn = document.getElementById('maleBtn');
+        const femaleBtn = document.getElementById('femaleBtn');
+        const lookingForMaleBtn = document.getElementById('lookingForMaleBtn');
+        const lookingForFemaleBtn = document.getElementById('lookingForFemaleBtn');
         const sendBtn = document.getElementById('sendBtn');
-        sendBtn.addEventListener('click', () => {
-            const messageInput = document.getElementById('messageInput');
-            const message = messageInput.value;
+        const messageInput = document.getElementById('messageInput');
+        const messagesDiv = document.getElementById('messages');
 
+        let gender = null;
+        let lookingFor = null;
+
+        maleBtn.addEventListener('click', () => {
+            gender = 'male';
+            socket.emit('selectGender', gender);
+        });
+
+        femaleBtn.addEventListener('click', () => {
+            gender = 'female';
+            socket.emit('selectGender', gender);
+        });
+
+        lookingForMaleBtn.addEventListener('click', () => {
+            lookingFor = 'male';
+            socket.emit('selectLookingFor', lookingFor);
+        });
+
+        lookingForFemaleBtn.addEventListener('click', () => {
+            lookingFor = 'female';
+            socket.emit('selectLookingFor', lookingFor);
+        });
+
+        sendBtn.addEventListener('click', () => {
+            const message = messageInput.value;
             if (message) {
-                socket.emit('sendMessage', message); // Отправляем сообщение на сервер
-                messageInput.value = ''; // Очищаем поле ввода
-            } else {
-                alert('Введите сообщение');
+                socket.emit('sendMessage', message);
+                messageInput.value = '';
             }
         });
 
-        // Когда получаем сообщение от сервера
         socket.on('receiveMessage', (message) => {
-            const messagesDiv = document.getElementById('messages');
             const newMessage = document.createElement('p');
             newMessage.textContent = message;
-            messagesDiv.appendChild(newMessage); // Добавляем новое сообщение в чат
+            messagesDiv.appendChild(newMessage);
         });
 
-        const endChatBtn = document.getElementById('endChatBtn');
-        endChatBtn.addEventListener('click', () => {
-            socket.emit('endChat'); // Отправляем запрос на завершение диалога
+        socket.on('partnerFound', () => {
+            alert('Собеседник найден!');
         });
 
-        // Когда получаем уведомление о завершении диалога
-        socket.on('chatEnded', (message) => {
-            console.log(message);
+        socket.on('waitingForPartner', () => {
+            alert('Ищу собеседника...');
+        });
+
+        socket.on('partnerDisconnected', (message) => {
             alert(message);
         });
     </script>
 </body>
-
 </html>
