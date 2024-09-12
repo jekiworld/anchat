@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Client</title>
+</head>
+
+<body>
+    <h1>WebSocket Client</h1>
+
+    <div>
+        <input type="text" id="messageInput" placeholder="Введите сообщение">
+        <button id="sendBtn">Отправить</button>
+        <button id="findPartnerBtn">Найти собеседника</button>
+        <button id="endChatBtn">Завершить диалог</button>
+    </div>
+
+    <div id="messages">
+        <h3>Сообщения:</h3>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        // Когда подключились, выводим сообщение
+        socket.on('connect', () => {
+            console.log('Подключен к WebSocket:', socket.id);
+        });
+
+        // Когда происходит отключение
+        socket.on('disconnect', () => {
+            console.log('Отключен от WebSocket');
+        });
+
+        // Обработка кнопки "Найти собеседника"
+        const findPartnerBtn = document.getElementById('findPartnerBtn');
+        findPartnerBtn.addEventListener('click', () => {
+            socket.emit('findPartner'); // Отправляем запрос на поиск собеседника
+        });
+
+        // Когда найден собеседник
+        socket.on('partnerFound', (data) => {
+            console.log('Собеседник найден:', data.partnerId);
+            alert('Собеседник найден!');
+        });
+
+        // Когда нет собеседника, ждём
+        socket.on('waitingForPartner', () => {
+            console.log('Ожидание собеседника...');
+            alert('Ожидание собеседника...');
+        });
+
+        // Когда собеседник отключается
+        socket.on('partnerDisconnected', (message) => {
+            console.log(message);
+            alert(message);
+        });
+
+        // Отправка сообщения на сервер
+        const sendBtn = document.getElementById('sendBtn');
+        sendBtn.addEventListener('click', () => {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value;
+
+            if (message) {
+                socket.emit('sendMessage', message); // Отправляем сообщение на сервер
+                messageInput.value = ''; // Очищаем поле ввода
+            } else {
+                alert('Введите сообщение');
+            }
+        });
+
+        // Когда получаем сообщение от сервера
+        socket.on('receiveMessage', (message) => {
+            const messagesDiv = document.getElementById('messages');
+            const newMessage = document.createElement('p');
+            newMessage.textContent = message;
+            messagesDiv.appendChild(newMessage); // Добавляем новое сообщение в чат
+        });
+
+        const endChatBtn = document.getElementById('endChatBtn');
+        endChatBtn.addEventListener('click', () => {
+            socket.emit('endChat'); // Отправляем запрос на завершение диалога
+        });
+
+        // Когда получаем уведомление о завершении диалога
+        socket.on('chatEnded', (message) => {
+            console.log(message);
+            alert(message);
+        });
+    </script>
+</body>
+
+</html>
