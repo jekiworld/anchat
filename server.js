@@ -15,9 +15,19 @@ const bot = new TelegramBot(token, { polling: true });
 
 let users = {}; 
 
+const commands = [
+    {
+        command: "start",
+        description: "Запуск бота"
+    },
+]
+
+bot.setMyCommands(commands);
+
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId; 
+    
 
     // Проверяем, есть ли пользователь в системе
     if (users[userId] && users[userId].gender && users[userId].lookingFor) {
