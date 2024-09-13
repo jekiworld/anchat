@@ -85,8 +85,6 @@ bot.onText(/\/preferences/, (msg) => {
 });
 
 // Функция для поиска партнёра
-// Функция для поиска партнёра
-// Функция для поиска партнёра
 function findPartnerForUser(userId) {
     const user = users[userId];
 
@@ -109,8 +107,8 @@ function findPartnerForUser(userId) {
         // 1. Не сам пользователь (id !== userId)
         // 2. Статус партнёра — "waiting"
         // 3. Пол партнёра совпадает с предпочтениями текущего пользователя
-        return potentialPartner.partnerId === null 
-            && id !== userId  // Исключаем самого пользователя
+        return potentialPartner.partnerId === null
+            && id !== userId.toString()  // Преобразуем userId в строку
             && potentialPartner.gender === user.lookingFor  // Пол соответствует предпочтению
             && potentialPartner.status === 'waiting'; // Статус "ожидание"
     });
@@ -147,6 +145,7 @@ function findPartnerForUser(userId) {
         bot.sendMessage(partnerId, 'Собеседник найден! Можете начинать общение.');
     }
 }
+
 
 
 
