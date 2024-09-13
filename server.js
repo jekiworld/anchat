@@ -190,16 +190,34 @@ function removeUser(userId) {
     }
 }
 
+// WebSocket логика для веб-пользователей
 io.on('connection', (socket) => {
     console.log('Пользователь подключился с вебсайта:', socket.id);
 
+    // Инициализация пользователя
     users[socket.id] = { partnerId: null, status: 'waiting', gender: null, lookingFor: null, isWebUser: true };
 
+    // Ловим событие отключения
     socket.on('disconnect', () => {
         console.log('Пользователь отключился:', socket.id);
-        removeUser(socket.id);
+
+        // Если у пользователя есть партнёр, уведомляем его об отключении
+        const partnerId = users[socket.id].partnerId;
+        if (partnerId) {
+            if (users[partnerId].isWebUser) {
+                io.to(partnerId).emit('chatEnded', 'Ваш собеседник отключился.');
+            } else {
+                bot.sendMessage(partnerId, 'Ваш собеседник с вебсайта отключился.');
+            }
+            users[partnerId].partnerId = null;
+            users[partnerId].status = 'waiting';
+        }
+
+        // Удаляем пользователя
+        delete users[socket.id];
     });
 
+    // Ловим событие отправки сообщения от веб-клиента
     socket.on('sendMessage', (message) => {
         const partnerId = users[socket.id].partnerId;
 
@@ -233,26 +251,58 @@ bot.onText(/\/end/, (msg) => {
     const chatId = msg.chat.id;
 
     if (users[chatId] && users[chatId].partnerId) {
-        endChatForUser(chatId);
+        const partnerId = users[chatId].partnerId;
+
+        // Уведомляем партнёра о завершении диалога
+        if (users[partnerId].isWebUser) {
+            io.to(partnerId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
+        } else {
+            bot.sendMessage(partnerId, 'Ваш собеседник завершил диалог.');
+        }
         bot.sendMessage(chatId, 'Вы завершили диалог.');
+
+        // Освобождаем пользователей
+        users[chatId].partnerId = null;
+        users[partnerId].partnerId = null;
+
+        users[chatId].status = 'waiting';
+        users[partnerId].status = 'waiting';
     } else {
         bot.sendMessage(chatId, 'У вас нет активного собеседника.');
     }
 });
+
 
 // Обработка команды /next для завершения и поиска нового собеседника
 bot.onText(/\/next/, (msg) => {
     const chatId = msg.chat.id;
 
     if (users[chatId] && users[chatId].partnerId) {
-        endChatForUser(chatId);
+        const partnerId = users[chatId].partnerId;
+
+        // Уведомляем партнёра о завершении диалога
+        if (users[partnerId].isWebUser) {
+            io.to(partnerId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
+        } else {
+            bot.sendMessage(partnerId, 'Ваш собеседник завершил диалог.');
+        }
         bot.sendMessage(chatId, 'Вы завершили диалог и начался поиск нового собеседника.');
+
+        // Освобождаем пользователей
+        users[chatId].partnerId = null;
+        users[partnerId].partnerId = null;
+
+        users[chatId].status = 'waiting';
+        users[partnerId].status = 'waiting';
+
+        // Начинаем искать нового собеседника
         findPartnerForUser(chatId);
     } else {
         bot.sendMessage(chatId, 'У вас нет активного собеседника, ищем нового.');
         findPartnerForUser(chatId);
     }
 });
+
 
 // Обработка сообщений от пользователей Telegram
 bot.on('message', (msg) => {
