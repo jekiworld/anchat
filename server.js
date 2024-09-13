@@ -1,87 +1,270 @@
-// Импортируем необходимые модули
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const TelegramBot = require('node-telegram-bot-api');
-require('dotenv').config(); // Загружаем переменные окружения
+require('dotenv').config(); 
 
-// Инициализируем Express
 const app = express();
-const server = http.createServer(app); // Создаем HTTP сервер на базе Express
-const io = new Server(server); // Создаем WebSocket сервер с помощью Socket.IO
+const server = http.createServer(app); 
+const io = new Server(server); 
 
-// Добавляем middleware для раздачи статических файлов
 app.use(express.static(__dirname));
 
-// Инициализируем Telegram-бота
-const token = process.env.TELEGRAM_TOKEN; // Читаем токен из .env
-const bot = new TelegramBot(token, { polling: true }); // Включаем режим опроса (polling)
+const token = process.env.TELEGRAM_TOKEN; 
+const bot = new TelegramBot(token, { polling: true }); 
 
-// Структура для хранения информации о пользователях
-let users = {}; // Для хранения пользователей, их статусов, партнёров, пола и предпочтений
+let users = {}; 
 
-// Обработка команды /start для Telegram-бота
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
+    const userId = 'tg_' + chatId; 
 
-    if (users[chatId] && users[chatId].gender && users[chatId].lookingFor) {
-        bot.sendMessage(chatId, 'Вы уже зарегистрированы. Хотите изменить свои предпочтения? Введите /preferences или /next для поиска нового собеседника.');
+    // Проверяем, есть ли пользователь в системе
+    if (users[userId] && users[userId].gender && users[userId].lookingFor) {
+        bot.sendMessage(chatId, 'Вы уже зарегистрированы. Что вы хотите сделать?', {
+            reply_markup: {
+                keyboard: [
+                    [{ text: 'Изменить предпочтения' }],
+                    [{ text: 'Найти нового собеседника' }],
+                    [{ text: 'Завершить чат' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            }
+        });
         return;
     }
 
-    // Инициализируем пользователя
-    users[chatId] = { partnerId: null, status: 'waiting', gender: null, lookingFor: null, isWebUser: false };
+    users[userId] = { partnerId: null, status: 'idle', gender: null, lookingFor: null, isWebUser: false };
 
-    // Запрашиваем пол у пользователя
+    // Запрашиваем пол у пользователя с использованием кнопок
     bot.sendMessage(chatId, 'Привет! Пожалуйста, выберите свой пол:', {
         reply_markup: {
-            inline_keyboard: [
-                [{ text: 'Мужской', callback_data: 'male' }],
-                [{ text: 'Женский', callback_data: 'female' }]
-            ]
+            keyboard: [
+                [{ text: 'Мужской' }, { text: 'Женский' }]
+            ],
+            resize_keyboard: true,
+            one_time_keyboard: true
         }
     });
 });
 
-// Обработка выбора пола и предпочтений
-bot.on('callback_query', (callbackQuery) => {
-    const chatId = callbackQuery.message.chat.id;
-    const data = callbackQuery.data;
+bot.onText(/\/end/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = 'tg_' + chatId;
 
-    if (data === 'male' || data === 'female') {
-        users[chatId].gender = data;
-
-        // После выбора пола, запрашиваем предпочтение, кого искать
-        bot.sendMessage(chatId, 'Кого вы хотите найти?', {
+    if (users[userId] && users[userId].partnerId) {
+        endChatForUser(userId);
+        bot.sendMessage(chatId, 'Вы завершили чат.', {
             reply_markup: {
-                inline_keyboard: [
-                    [{ text: 'Мужчин', callback_data: 'looking_male' }],
-                    [{ text: 'Женщин', callback_data: 'looking_female' }]
-                ]
+                keyboard: [
+                    [{ text: 'Найти нового собеседника' }],
+                    [{ text: 'Изменить предпочтения' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
             }
         });
-    } else if (data === 'looking_male' || data === 'looking_female') {
-        // Сохраняем предпочтение поиска
-        users[chatId].lookingFor = data === 'looking_male' ? 'male' : 'female';
-
-        bot.sendMessage(chatId, `Спасибо! Вы выбрали искать ${users[chatId].lookingFor === 'male' ? 'мужчин' : 'женщин'}. Теперь ищем вам собеседника...`);
-        findPartnerForUser(chatId);
+    } else {
+        bot.sendMessage(chatId, 'У вас нет активного чата.', {
+            reply_markup: {
+                keyboard: [
+                    [{ text: 'Найти нового собеседника' }],
+                    [{ text: 'Изменить предпочтения' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            }
+        });
     }
+    // Устанавливаем статус в 'idle', чтобы пользователь не искал собеседника
+    users[userId].status = 'idle';
 });
 
-// Обработка команды для изменения предпочтений /preferences
-bot.onText(/\/preferences/, (msg) => {
+// Обработка сообщений от пользователей Telegram
+bot.on('message', (msg) => {
     const chatId = msg.chat.id;
+    const userId = 'tg_' + chatId; // Добавляем префикс
+    const text = msg.text;
 
-    // Запрашиваем новое предпочтение для поиска
-    bot.sendMessage(chatId, 'Кого вы хотите найти?', {
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: 'Мужчин', callback_data: 'looking_male' }],
-                [{ text: 'Женщин', callback_data: 'looking_female' }]
-            ]
+    // Если сообщение является командой и не является /end, игнорируем его (команду /start мы обработали выше)
+    if (msg.entities && msg.entities.some(entity => entity.type === 'bot_command' && text !== '/end')) {
+        return;
+    }
+
+    // Проверяем, если пользователь не зарегистрирован или не выбрал пол
+    if (!users[userId] || !users[userId].gender) {
+        if (text === 'Мужской' || text === 'Женский') {
+            users[userId].gender = text === 'Мужской' ? 'male' : 'female';
+
+            // Запрашиваем предпочтения пользователя с помощью кнопок
+            bot.sendMessage(chatId, 'Кого вы хотите найти?', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Мужчин' }, { text: 'Женщин' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: true
+                }
+            });
+        } else {
+            bot.sendMessage(chatId, 'Пожалуйста, выберите свой пол:', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Мужской' }, { text: 'Женский' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: true
+                }
+            });
         }
-    });
+        return;
+    }
+
+    // Проверяем, если пользователь выбрал пол, но не выбрал предпочтения
+    if (!users[userId].lookingFor) {
+        if (text === 'Мужчин' || text === 'Женщин') {
+            users[userId].lookingFor = text === 'Мужчин' ? 'male' : 'female';
+
+            bot.sendMessage(chatId, `Спасибо! Вы выбрали искать ${users[userId].lookingFor === 'male' ? 'мужчин' : 'женщин'}.`, {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Найти нового собеседника' }],
+                        [{ text: 'Изменить предпочтения' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                }
+            });
+            // Пользователь готов, но пока не ищет собеседника
+            users[userId].status = 'idle';
+        } else {
+            bot.sendMessage(chatId, 'Пожалуйста, выберите, кого вы хотите найти:', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Мужчин' }, { text: 'Женщин' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: true
+                }
+            });
+        }
+        return;
+    }
+
+    // Обработка нажатий на кнопки меню
+    if (text === 'Изменить предпочтения') {
+        // Предлагаем изменить пол и предпочтения
+        users[userId].gender = null;
+        users[userId].lookingFor = null;
+        users[userId].status = 'idle';
+        users[userId].partnerId = null;
+
+        bot.sendMessage(chatId, 'Выберите свой пол:', {
+            reply_markup: {
+                keyboard: [
+                    [{ text: 'Мужской' }, { text: 'Женский' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        });
+        return;
+    } else if (text === 'Найти нового собеседника') {
+        // Если пользователь в чате, завершаем текущий чат
+        if (users[userId].partnerId) {
+            endChatForUser(userId);
+        }
+        // Начинаем поиск нового собеседника
+        bot.sendMessage(chatId, 'Ищем нового собеседника для вас...');
+        users[userId].status = 'waiting';
+        findPartnerForUser(userId);
+        return;
+    } else if (text === 'Завершить чат') {
+        // Завершаем текущий чат
+        if (users[userId].partnerId) {
+            endChatForUser(userId);
+            bot.sendMessage(chatId, 'Вы завершили чат.', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Найти нового собеседника' }],
+                        [{ text: 'Изменить предпочтения' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                }
+            });
+        } else {
+            bot.sendMessage(chatId, 'У вас нет активного чата.', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Найти нового собеседника' }],
+                        [{ text: 'Изменить предпочтения' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                }
+            });
+        }
+        // Устанавливаем статус в 'idle', чтобы пользователь не искал собеседника
+        users[userId].status = 'idle';
+        return;
+    } else if (text === '/end') {
+        // Обработка команды /end (на случай, если она не была обработана ранее)
+        if (users[userId].partnerId) {
+            endChatForUser(userId);
+            bot.sendMessage(chatId, 'Вы завершили чат.', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Найти нового собеседника' }],
+                        [{ text: 'Изменить предпочтения' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                }
+            });
+        } else {
+            bot.sendMessage(chatId, 'У вас нет активного чата.', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Найти нового собеседника' }],
+                        [{ text: 'Изменить предпочтения' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                }
+            });
+        }
+        // Устанавливаем статус в 'idle', чтобы пользователь не искал собеседника
+        users[userId].status = 'idle';
+        return;
+    }
+
+    // Если пользователь в чате, пересылаем сообщение партнеру
+    if (users[userId] && users[userId].partnerId) {
+        const partnerId = users[userId].partnerId;
+
+        if (users[partnerId].isWebUser) {
+            // Если собеседник — веб-пользователь, отправляем сообщение через WebSocket
+            const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
+            io.to(socketId).emit('receiveMessage', text);
+        } else {
+            // Если собеседник — пользователь Telegram, отправляем через Telegram
+            const partnerChatId = partnerId.substring(3); // Убираем префикс 'tg_'
+            bot.sendMessage(partnerChatId, text);
+        }
+    } else {
+        bot.sendMessage(chatId, 'У вас нет активного чата. Вы можете найти нового собеседника или изменить предпочтения.', {
+            reply_markup: {
+                keyboard: [
+                    [{ text: 'Найти нового собеседника' }],
+                    [{ text: 'Изменить предпочтения' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            }
+        });
+    }
 });
 
 // Функция для поиска партнёра
@@ -89,9 +272,9 @@ function findPartnerForUser(userId) {
     const user = users[userId];
 
     // Проверяем, заполнены ли у пользователя все данные
-    if (!user.gender || !user.lookingFor) {
-        console.log(`Пользователь ${userId} не завершил выбор пола или предпочтений`);
-        return;  // Если пол или предпочтение не указаны, не продолжаем
+    if (!user.gender || !user.lookingFor || user.status !== 'waiting') {
+        console.log(`Пользователь ${userId} не готов к поиску собеседника`);
+        return;
     }
 
     // Отладочные сообщения
@@ -102,24 +285,23 @@ function findPartnerForUser(userId) {
     const potentialPartners = Object.keys(users).filter(id => {
         const potentialPartner = users[id];
 
-        // Проверяем, что у потенциального партнёра есть все данные и он соответствует критериям
-        // Убедимся, что партнёр:
-        // 1. Не сам пользователь (id !== userId)
-        // 2. Статус партнёра — "waiting"
-        // 3. Пол партнёра совпадает с предпочтениями текущего пользователя
+        // Проверяем соответствие критериям
         return potentialPartner.partnerId === null
-            && id !== userId.toString()  // Преобразуем userId в строку
-            && potentialPartner.gender === user.lookingFor  // Пол соответствует предпочтению
-            && potentialPartner.status === 'waiting'; // Статус "ожидание"
+            && id !== userId
+            && potentialPartner.gender === user.lookingFor
+            && potentialPartner.lookingFor === user.gender
+            && potentialPartner.status === 'waiting';
     });
 
     // Если нет подходящих партнёров
     if (potentialPartners.length === 0) {
         console.log('Нет подходящих партнёров, продолжаем поиск...');
-        if (users[userId].isWebUser) {
-            io.to(userId).emit('waitingForPartner');
+        if (user.isWebUser) {
+            const socketId = userId.substring(3); // Убираем префикс 'ws_'
+            io.to(socketId).emit('waitingForPartner');
         } else {
-            bot.sendMessage(userId, 'Ищу собеседника, пожалуйста подождите...');
+            const chatId = userId.substring(3); // Убираем префикс 'tg_'
+            bot.sendMessage(chatId, 'Ищу собеседника, пожалуйста подождите...');
         }
         return;
     }
@@ -136,18 +318,19 @@ function findPartnerForUser(userId) {
 
     // Уведомляем пользователей
     if (users[partnerId].isWebUser) {
-        io.to(partnerId).emit('partnerFound', { partnerId: userId, isTelegramUser: !users[userId].isWebUser });
+        const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
+        io.to(socketId).emit('partnerFound', { partnerId: userId, isTelegramUser: !users[userId].isWebUser });
         if (!users[userId].isWebUser) {
-            bot.sendMessage(userId, 'Собеседник найден! Вы общаетесь с пользователем с вебсайта.');
+            const chatId = userId.substring(3); // Убираем префикс 'tg_'
+            bot.sendMessage(chatId, 'Собеседник найден! Вы общаетесь с пользователем с вебсайта.');
         }
     } else {
-        bot.sendMessage(userId, 'Собеседник найден! Можете начинать общение.');
-        bot.sendMessage(partnerId, 'Собеседник найден! Можете начинать общение.');
+        const chatIdUser = userId.substring(3); // Убираем префикс 'tg_'
+        const chatIdPartner = partnerId.substring(3); // Убираем префикс 'tg_'
+        bot.sendMessage(chatIdUser, 'Собеседник найден! Можете начинать общение.');
+        bot.sendMessage(chatIdPartner, 'Собеседник найден! Можете начинать общение.');
     }
 }
-
-
-
 
 // Функция для завершения общения и освобождения пользователей
 function endChatForUser(userId) {
@@ -158,74 +341,84 @@ function endChatForUser(userId) {
 
         // Уведомляем партнёра о завершении чата
         if (users[partnerId].isWebUser) {
-            io.to(partnerId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
+            const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
+            io.to(socketId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
         } else {
-            bot.sendMessage(partnerId, 'Ваш собеседник завершил диалог.');
+            const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
+            bot.sendMessage(chatId, 'Ваш собеседник завершил диалог.', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Найти нового собеседника' }],
+                        [{ text: 'Изменить предпочтения' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                }
+            });
         }
 
         // Обнуляем партнёров у обоих пользователей
         users[userId].partnerId = null;
         users[partnerId].partnerId = null;
 
-        // Возвращаем статус обоих пользователей в ожидание
-        users[userId].status = 'waiting';
-        users[partnerId].status = 'waiting';
+        // Устанавливаем статус обоих пользователей в 'idle'
+        users[userId].status = 'idle';
+        users[partnerId].status = 'idle';
 
         console.log(`Чат между пользователями ${userId} и ${partnerId} завершён.`);
     }
 }
 
-function removeUser(userId) {
-    const user = users[userId];
-
-    if (user) {
-        const partnerId = user.partnerId;
-
-        if (partnerId) {
-            endChatForUser(userId);
-        }
-
-        delete users[userId];
-        console.log(`Пользователь ${userId} удалён.`);
-    }
-}
-
 // WebSocket логика для веб-пользователей
 io.on('connection', (socket) => {
-    console.log('Пользователь подключился с вебсайта:', socket.id);
+    const userId = 'ws_' + socket.id; // Добавляем префикс
+    console.log('Пользователь подключился с вебсайта:', userId);
 
     // Инициализация пользователя
-    users[socket.id] = { partnerId: null, status: 'waiting', gender: null, lookingFor: null, isWebUser: true };
+    users[userId] = { partnerId: null, status: 'idle', gender: null, lookingFor: null, isWebUser: true };
 
     // Ловим событие отключения
     socket.on('disconnect', () => {
-        console.log('Пользователь отключился:', socket.id);
+        console.log('Пользователь отключился:', userId);
 
         // Если у пользователя есть партнёр, уведомляем его об отключении
-        const partnerId = users[socket.id].partnerId;
+        const partnerId = users[userId].partnerId;
         if (partnerId) {
             if (users[partnerId].isWebUser) {
-                io.to(partnerId).emit('chatEnded', 'Ваш собеседник отключился.');
+                const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
+                io.to(socketId).emit('chatEnded', 'Ваш собеседник отключился.');
             } else {
-                bot.sendMessage(partnerId, 'Ваш собеседник с вебсайта отключился.');
+                const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
+                bot.sendMessage(chatId, 'Ваш собеседник с вебсайта отключился.', {
+                    reply_markup: {
+                        keyboard: [
+                            [{ text: 'Найти нового собеседника' }],
+                            [{ text: 'Изменить предпочтения' }]
+                        ],
+                        resize_keyboard: true,
+                        one_time_keyboard: false
+                    }
+                });
             }
             users[partnerId].partnerId = null;
-            users[partnerId].status = 'waiting';
+            users[partnerId].status = 'idle';
         }
 
         // Удаляем пользователя
-        delete users[socket.id];
+        delete users[userId];
     });
 
     // Ловим событие отправки сообщения от веб-клиента
     socket.on('sendMessage', (message) => {
-        const partnerId = users[socket.id].partnerId;
+        const partnerId = users[userId].partnerId;
 
         if (partnerId && users[partnerId]) {
             if (users[partnerId].isWebUser) {
-                io.to(partnerId).emit('receiveMessage', message);
+                const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
+                io.to(socketId).emit('receiveMessage', message);
             } else {
-                bot.sendMessage(partnerId, message);
+                const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
+                bot.sendMessage(chatId, message);
             }
         } else {
             socket.emit('noPartner', 'Партнёр не найден.');
@@ -234,94 +427,31 @@ io.on('connection', (socket) => {
 
     // Ловим событие выбора пола
     socket.on('selectGender', (gender) => {
-        users[socket.id].gender = gender;
-        console.log(`Пользователь ${socket.id} выбрал пол: ${gender}`);
+        users[userId].gender = gender;
+        console.log(`Пользователь ${userId} выбрал пол: ${gender}`);
     });
 
     // Ловим событие выбора предпочтений
     socket.on('selectLookingFor', (lookingFor) => {
-        users[socket.id].lookingFor = lookingFor;
-        console.log(`Пользователь ${socket.id} ищет: ${lookingFor}`);
-        findPartnerForUser(socket.id);
+        users[userId].lookingFor = lookingFor;
+        console.log(`Пользователь ${userId} ищет: ${lookingFor}`);
+        // Устанавливаем статус в 'waiting' и начинаем поиск
+        users[userId].status = 'waiting';
+        console.log(`Статус пользователя ${userId} изменён на 'waiting'`);
+        findPartnerForUser(userId);
     });
-});
 
-// Обработка команды /end для завершения диалога
-bot.onText(/\/end/, (msg) => {
-    const chatId = msg.chat.id;
+    // Ловим событие начала поиска собеседника
+    socket.on('startSearching', () => {
+        users[userId].status = 'waiting';
+        console.log(`Пользователь ${userId} начал поиск собеседника`);
+        findPartnerForUser(userId);
+    });
 
-    if (users[chatId] && users[chatId].partnerId) {
-        const partnerId = users[chatId].partnerId;
-
-        // Уведомляем партнёра о завершении диалога
-        if (users[partnerId].isWebUser) {
-            io.to(partnerId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
-        } else {
-            bot.sendMessage(partnerId, 'Ваш собеседник завершил диалог.');
-        }
-        bot.sendMessage(chatId, 'Вы завершили диалог.');
-
-        // Освобождаем пользователей
-        users[chatId].partnerId = null;
-        users[partnerId].partnerId = null;
-
-        users[chatId].status = 'waiting';
-        users[partnerId].status = 'waiting';
-    } else {
-        bot.sendMessage(chatId, 'У вас нет активного собеседника.');
-    }
-});
-
-
-// Обработка команды /next для завершения и поиска нового собеседника
-bot.onText(/\/next/, (msg) => {
-    const chatId = msg.chat.id;
-
-    if (users[chatId] && users[chatId].partnerId) {
-        const partnerId = users[chatId].partnerId;
-
-        // Уведомляем партнёра о завершении диалога
-        if (users[partnerId].isWebUser) {
-            io.to(partnerId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
-        } else {
-            bot.sendMessage(partnerId, 'Ваш собеседник завершил диалог.');
-        }
-        bot.sendMessage(chatId, 'Вы завершили диалог и начался поиск нового собеседника.');
-
-        // Освобождаем пользователей
-        users[chatId].partnerId = null;
-        users[partnerId].partnerId = null;
-
-        users[chatId].status = 'waiting';
-        users[partnerId].status = 'waiting';
-
-        // Начинаем искать нового собеседника
-        findPartnerForUser(chatId);
-    } else {
-        bot.sendMessage(chatId, 'У вас нет активного собеседника, ищем нового.');
-        findPartnerForUser(chatId);
-    }
-});
-
-
-// Обработка сообщений от пользователей Telegram
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-
-    if (users[chatId] && users[chatId].partnerId) {
-        const partnerId = users[chatId].partnerId;
-
-        if (users[partnerId].isWebUser) {
-            // Если собеседник — веб-пользователь, отправляем сообщение через WebSocket
-            io.to(partnerId).emit('receiveMessage', text);
-        } else {
-            // Если собеседник — пользователь Telegram, отправляем через Telegram
-            bot.sendMessage(partnerId, text);
-        }
-    } else if (text !== '/start' && text !== '/preferences' && text !== '/end' && text !== '/next') {
-        bot.sendMessage(chatId, 'Вы пока не нашли собеседника. Пожалуйста, подождите.');
-    }
+    // Ловим событие завершения чата
+    socket.on('endChat', () => {
+        endChatForUser(userId);
+    });
 });
 
 // Запускаем сервер на порту 3000
