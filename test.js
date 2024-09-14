@@ -131,7 +131,15 @@ bot.onText(/\/end/, (msg) => {
 
 //
 
+bot.on('message', (msg) =>{
+    const chatId = msg.chat.id;
+    const userId = 'tg_' + chatId;
+    const text = msg.text;
 
+    if(msg.entities && msg.entities.some(entity => entity.type === 'bot_command' && text !== '/end')){
+        return;
+    }
+})
 //
 
 
@@ -182,8 +190,8 @@ function findPartnerForUser(userId) {
 
     if (users[partnerId].isWebUser) {
         const socketId = partnerId.substring(3);
-        io.to(socketId).emit('partnerFound', {partnerId: userId, isTelegramUser: !users[userId].isWebUser});
-        if(!users[userId].isWebUser){
+        io.to(socketId).emit('partnerFound', { partnerId: userId, isTelegramUser: !users[userId].isWebUser });
+        if (!users[userId].isWebUser) {
             const chatId = userId.substring(3);
             bot.sendMessage(chatId, 'Собеседник найден! Вы общаетесь с пользователем с вебсайта.')
         }
