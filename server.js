@@ -36,6 +36,7 @@ bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId;
 
+
     if (users[userId] && users[userId].gender && users[userId].lookingFor && users[userId].university) {
         bot.sendMessage(chatId, 'Вы уже зарегистрированы. Что вы хотите сделать?', {
             reply_markup: {
@@ -59,6 +60,7 @@ bot.onText(/\/start/, (msg) => {
         university: null,
         isWebUser: false
     };
+
 
     bot.sendMessage(chatId, 'Привет! Пожалуйста, выберите свой университет:', {
         reply_markup: {
@@ -194,6 +196,8 @@ bot.on('message', (msg) => {
                 }
             });
         }
+        console.log(chatId, users[userId]);
+
         return;
     }
 
@@ -286,7 +290,7 @@ bot.on('message', (msg) => {
             const socketId = partnerId.substring(3);
             io.to(socketId).emit('receiveMessage', text);
         } else {
-            const partnerChatId = partnerId.substring(3); 
+            const partnerChatId = partnerId.substring(3);
             bot.sendMessage(partnerChatId, text);
         }
     } else {
@@ -325,10 +329,10 @@ function findPartnerForUser(userId) {
     if (potentialPartners.length === 0) {
         console.log('Нет подходящих партнёров, продолжаем поиск...');
         if (user.isWebUser) {
-            const socketId = userId.substring(3); 
+            const socketId = userId.substring(3);
             io.to(socketId).emit('waitingForPartner');
         } else {
-            const chatId = userId.substring(3); 
+            const chatId = userId.substring(3);
             bot.sendMessage(chatId, 'Ищу собеседника, пожалуйста подождите...');
         }
         return;
@@ -343,15 +347,15 @@ function findPartnerForUser(userId) {
     users[partnerId].status = 'chatting';
 
     if (users[partnerId].isWebUser) {
-        const socketId = partnerId.substring(3); 
+        const socketId = partnerId.substring(3);
         io.to(socketId).emit('partnerFound', { partnerId: userId, isTelegramUser: !users[userId].isWebUser });
         if (!users[userId].isWebUser) {
-            const chatId = userId.substring(3); 
+            const chatId = userId.substring(3);
             bot.sendMessage(chatId, 'Собеседник найден! Вы общаетесь с пользователем с вебсайта.');
         }
     } else {
-        const chatIdUser = userId.substring(3); 
-        const chatIdPartner = partnerId.substring(3); 
+        const chatIdUser = userId.substring(3);
+        const chatIdPartner = partnerId.substring(3);
         bot.sendMessage(chatIdUser, 'Собеседник найден! Можете начинать общение.');
         bot.sendMessage(chatIdPartner, 'Собеседник найден! Можете начинать общение.');
     }
@@ -364,10 +368,10 @@ function endChatForUser(userId) {
         const partnerId = user.partnerId;
 
         if (users[partnerId].isWebUser) {
-            const socketId = partnerId.substring(3); 
+            const socketId = partnerId.substring(3);
             io.to(socketId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
         } else {
-            const chatId = partnerId.substring(3); 
+            const chatId = partnerId.substring(3);
             bot.sendMessage(chatId, 'Ваш собеседник завершил диалог.', {
                 reply_markup: {
                     keyboard: [
@@ -391,7 +395,7 @@ function endChatForUser(userId) {
 }
 
 io.on('connection', (socket) => {
-    const userId = 'ws_' + socket.id; 
+    const userId = 'ws_' + socket.id;
     console.log('Пользователь подключился с вебсайта:', userId);
 
     users[userId] = {
@@ -409,10 +413,10 @@ io.on('connection', (socket) => {
         const partnerId = users[userId].partnerId;
         if (partnerId) {
             if (users[partnerId].isWebUser) {
-                const socketId = partnerId.substring(3); 
+                const socketId = partnerId.substring(3);
                 io.to(socketId).emit('chatEnded', 'Ваш собеседник отключился.');
             } else {
-                const chatId = partnerId.substring(3); 
+                const chatId = partnerId.substring(3);
                 bot.sendMessage(chatId, 'Ваш собеседник с вебсайта отключился.', {
                     reply_markup: {
                         keyboard: [
@@ -449,21 +453,34 @@ io.on('connection', (socket) => {
         findPartnerForUser(userId);
     });
 
+
     socket.on('sendMessage', (message) => {
         const partnerId = users[userId].partnerId;
+        
 
         if (partnerId && users[partnerId]) {
             if (users[partnerId].isWebUser) {
-                const socketId = partnerId.substring(3); 
+                const socketId = partnerId.substring(3);
                 io.to(socketId).emit('receiveMessage', message);
             } else {
-                const chatId = partnerId.substring(3); 
+                const chatId = partnerId.substring(3);
                 bot.sendMessage(chatId, message);
             }
         } else {
             socket.emit('noPartner', 'Партнёр не найден.');
         }
     });
+
+
+    // function check(userId){
+    //     if(users[userId].partnerId && users[userId].gender && users[userId].lookingFor && users[userId].university){
+    //         console.log(userId, users[userId]);
+    //     }
+    // }
+    
+    // // Вызываем функцию с полным userId
+    // check(userId);
+    
 
     socket.on('endChat', () => {
         endChatForUser(userId);

@@ -1,137 +1,47 @@
-<!-- index.html -->
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Анонимный Чат</title>
+    <title>Анонимный чат</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Подключаем Socket.IO -->
     <script src="/socket.io/socket.io.js"></script>
-    <style>
-        /* Стили для простого интерфейса */
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-        #chat {
-            display: none;
-        }
-        #messages {
-            border: 1px solid #ccc;
-            height: 300px;
-            overflow-y: scroll;
-            padding: 10px;
-            margin-bottom: 10px;
-        }
-        #inputMessage {
-            width: 80%;
-        }
-        #sendButton {
-            width: 15%;
-        }
-    </style>
 </head>
 <body>
-
-    <h1>Анонимный Чат</h1>
-
-    <div id="setup">
-        <h3>Выберите свой пол:</h3>
-        <button onclick="selectGender('male')">Мужской</button>
-        <button onclick="selectGender('female')">Женский</button>
+    <div class="container">
+        <h1>Анонимный чат</h1>
+        <div id="registration">
+            <div id="selectUniversity">
+                <h2>Выберите свой университет:</h2>
+                <button class="university-btn">Университет А</button>
+                <button class="university-btn">Университет Б</button>
+                <button class="university-btn">Любой университет</button>
+            </div>
+            <div id="selectGender" style="display: none;">
+                <h2>Выберите свой пол:</h2>
+                <button class="gender-btn">Мужской</button>
+                <button class="gender-btn">Женский</button>
+                <button class="gender-btn">Любой пол</button>
+            </div>
+            <div id="selectLookingFor" style="display: none;">
+                <h2>Кого вы хотите найти?</h2>
+                <button class="lookingfor-btn">Мужчин</button>
+                <button class="lookingfor-btn">Женщин</button>
+                <button class="lookingfor-btn">Любой пол</button>
+            </div>
+            <div id="startChat" style="display: none;">
+                <button id="startChatBtn">Найти собеседника</button>
+            </div>
+        </div>
+        <div id="chat" style="display: none;">
+            <div id="chatWindow"></div>
+            <div id="messageInput">
+                <input type="text" id="message" placeholder="Введите сообщение...">
+                <button id="sendBtn">Отправить</button>
+            </div>
+            <button id="endChatBtn">Завершить чат</button>
+        </div>
     </div>
-
-    <div id="preferences" style="display: none;">
-        <h3>Кого вы хотите найти?</h3>
-        <button onclick="selectLookingFor('male')">Мужчин</button>
-        <button onclick="selectLookingFor('female')">Женщин</button>
-    </div>
-
-    <div id="waiting" style="display: none;">
-        <h3>Ищем собеседника...</h3>
-    </div>
-
-    <div id="chat">
-        <div id="messages"></div>
-        <input type="text" id="inputMessage" placeholder="Введите сообщение..." />
-        <button id="sendButton" onclick="sendMessage()">Отправить</button>
-        <br><br>
-        <button onclick="endChat()">Завершить чат</button>
-    </div>
-
-    <script>
-        const socket = io();
-
-        let userGender = null;
-        let userLookingFor = null;
-
-        // Функция выбора пола
-        function selectGender(gender) {
-            userGender = gender;
-            socket.emit('selectGender', gender);
-            document.getElementById('setup').style.display = 'none';
-            document.getElementById('preferences').style.display = 'block';
-        }
-
-        // Функция выбора предпочтений
-        function selectLookingFor(lookingFor) {
-            userLookingFor = lookingFor;
-            socket.emit('selectLookingFor', lookingFor);
-            document.getElementById('preferences').style.display = 'none';
-            document.getElementById('waiting').style.display = 'block';
-        }
-
-        // Отправка сообщения
-        function sendMessage() {
-            const message = document.getElementById('inputMessage').value;
-            if (message.trim() !== '') {
-                socket.emit('sendMessage', message);
-                appendMessage('Вы: ' + message);
-                document.getElementById('inputMessage').value = '';
-            }
-        }
-
-        // Завершение чата
-        function endChat() {
-            socket.emit('endChat');
-            document.getElementById('chat').style.display = 'none';
-            document.getElementById('waiting').style.display = 'block';
-            alert('Вы завершили чат.');
-        }
-
-        // Добавление сообщения в чат
-        function appendMessage(message) {
-            const messagesDiv = document.getElementById('messages');
-            const messageElement = document.createElement('div');
-            messageElement.textContent = message;
-            messagesDiv.appendChild(messageElement);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-
-        // Обработка событий от сервера
-        socket.on('waitingForPartner', () => {
-            document.getElementById('waiting').style.display = 'block';
-        });
-
-        socket.on('partnerFound', (data) => {
-            document.getElementById('waiting').style.display = 'none';
-            document.getElementById('chat').style.display = 'block';
-            appendMessage('Собеседник найден! Можете начинать общение.');
-        });
-
-        socket.on('receiveMessage', (message) => {
-            appendMessage('Собеседник: ' + message);
-        });
-
-        socket.on('chatEnded', (message) => {
-            appendMessage(message);
-            document.getElementById('chat').style.display = 'none';
-            document.getElementById('waiting').style.display = 'block';
-            alert('Собеседник завершил чат.');
-        });
-
-        socket.on('noPartner', (message) => {
-            alert(message);
-        });
-    </script>
+    <script src="script.js"></script>
 </body>
 </html>
