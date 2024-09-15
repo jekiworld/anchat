@@ -142,6 +142,34 @@ bot.on('message', (msg) =>{
 })
 //
 
+if(!users[userId] || users[userId].gender){
+    if(text === 'Мужской' || text ==='Женский') {
+        users[userId].gender = text === 'Мужской' ? 'male' : 'female';
+
+        bot.sendMessage(chatId, 'Кого вы хотите найти?', {
+            reply_markup: {
+                keyboard: [
+                    [{ text: 'Мужчин' }, { text: 'Женщин' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        });
+        
+    }else{
+        bot.sendMessage(chatId, 'Пожалуйста, выберите свой пол:', {
+            reply_markup: {
+                keyboard: [
+                    [{ text: 'Мужской' }, { text: 'Женский' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        });
+    }
+    return;
+}
+
 
 function findPartnerForUser(userId) {
     const user = users[userId];
