@@ -2,34 +2,41 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const TelegramBot = require('node-telegram-bot-api');
-require('dotenv').config(); 
+require('dotenv').config();
 
 const app = express();
-const server = http.createServer(app); 
-const io = new Server(server); 
+const server = http.createServer(app);
+const io = new Server(server);
 
 app.use(express.static(__dirname));
 
-const token = process.env.TELEGRAM_TOKEN; 
-const bot = new TelegramBot(token, { polling: true }); 
-
-let users = {}; 
+const token = process.env.TELEGRAM_TOKEN;
+const bot = new TelegramBot(token, { polling: true });
 
 const commands = [
     {
-        command: "start",
-        description: "Запуск бота"
+        command: 'start',
+        description: 'Запуск бота'
     },
-]
+    {
+        command: 'end',
+        description: 'Завершить текущий чат'
+    }
+];
 
 bot.setMyCommands(commands);
 
+let users = {};
+
+const universities = ['Университет А', 'Университет Б', 'Любой университет'];
+const genders = ['Мужской', 'Женский', 'Любой пол'];
+const preferences = ['Мужчин', 'Женщин', 'Любой пол'];
+
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
-    const userId = 'tg_' + chatId; 
-    
+    const userId = 'tg_' + chatId;
 
-    if (users[userId] && users[userId].gender && users[userId].lookingFor) {
+    if (users[userId] && users[userId].gender && users[userId].lookingFor && users[userId].university) {
         bot.sendMessage(chatId, 'Вы уже зарегистрированы. Что вы хотите сделать?', {
             reply_markup: {
                 keyboard: [
@@ -44,12 +51,20 @@ bot.onText(/\/start/, (msg) => {
         return;
     }
 
-    users[userId] = { partnerId: null, status: 'idle', gender: null, lookingFor: null, isWebUser: false };
+    users[userId] = {
+        partnerId: null,
+        status: 'idle',
+        gender: null,
+        lookingFor: null,
+        university: null,
+        isWebUser: false
+    };
 
-    bot.sendMessage(chatId, 'Привет! Пожалуйста, выберите свой пол:', {
+    bot.sendMessage(chatId, 'Привет! Пожалуйста, выберите свой университет:', {
         reply_markup: {
             keyboard: [
-                [{ text: 'Мужской' }, { text: 'Женский' }]
+                [{ text: 'Университет А' }, { text: 'Университет Б' }],
+                [{ text: 'Любой университет' }]
             ],
             resize_keyboard: true,
             one_time_keyboard: true
@@ -90,21 +105,49 @@ bot.onText(/\/end/, (msg) => {
 
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
-    const userId = 'tg_' + chatId; 
+    const userId = 'tg_' + chatId;
     const text = msg.text;
 
     if (msg.entities && msg.entities.some(entity => entity.type === 'bot_command' && text !== '/end')) {
         return;
     }
 
-    if (!users[userId] || !users[userId].gender) {
-        if (text === 'Мужской' || text === 'Женский') {
-            users[userId].gender = text === 'Мужской' ? 'male' : 'female';
+    if (!users[userId].university) {
+        if (universities.includes(text)) {
+            users[userId].university = text;
+            bot.sendMessage(chatId, 'Пожалуйста, выберите свой пол:', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Мужской' }, { text: 'Женский' }],
+                        [{ text: 'Любой пол' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: true
+                }
+            });
+        } else {
+            bot.sendMessage(chatId, 'Пожалуйста, выберите свой университет:', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Университет А' }, { text: 'Университет Б' }],
+                        [{ text: 'Любой университет' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: true
+                }
+            });
+        }
+        return;
+    }
 
+    if (!users[userId].gender) {
+        if (genders.includes(text)) {
+            users[userId].gender = text;
             bot.sendMessage(chatId, 'Кого вы хотите найти?', {
                 reply_markup: {
                     keyboard: [
-                        [{ text: 'Мужчин' }, { text: 'Женщин' }]
+                        [{ text: 'Мужчин' }, { text: 'Женщин' }],
+                        [{ text: 'Любой пол' }]
                     ],
                     resize_keyboard: true,
                     one_time_keyboard: true
@@ -114,7 +157,8 @@ bot.on('message', (msg) => {
             bot.sendMessage(chatId, 'Пожалуйста, выберите свой пол:', {
                 reply_markup: {
                     keyboard: [
-                        [{ text: 'Мужской' }, { text: 'Женский' }]
+                        [{ text: 'Мужской' }, { text: 'Женский' }],
+                        [{ text: 'Любой пол' }]
                     ],
                     resize_keyboard: true,
                     one_time_keyboard: true
@@ -125,10 +169,9 @@ bot.on('message', (msg) => {
     }
 
     if (!users[userId].lookingFor) {
-        if (text === 'Мужчин' || text === 'Женщин') {
-            users[userId].lookingFor = text === 'Мужчин' ? 'male' : 'female';
-
-            bot.sendMessage(chatId, `Спасибо! Вы выбрали искать ${users[userId].lookingFor === 'male' ? 'мужчин' : 'женщин'}.`, {
+        if (preferences.includes(text)) {
+            users[userId].lookingFor = text;
+            bot.sendMessage(chatId, `Спасибо! Вы выбрали искать ${users[userId].lookingFor.toLowerCase()}.`, {
                 reply_markup: {
                     keyboard: [
                         [{ text: 'Найти нового собеседника' }],
@@ -143,7 +186,8 @@ bot.on('message', (msg) => {
             bot.sendMessage(chatId, 'Пожалуйста, выберите, кого вы хотите найти:', {
                 reply_markup: {
                     keyboard: [
-                        [{ text: 'Мужчин' }, { text: 'Женщин' }]
+                        [{ text: 'Мужчин' }, { text: 'Женщин' }],
+                        [{ text: 'Любой пол' }]
                     ],
                     resize_keyboard: true,
                     one_time_keyboard: true
@@ -156,13 +200,15 @@ bot.on('message', (msg) => {
     if (text === 'Изменить предпочтения') {
         users[userId].gender = null;
         users[userId].lookingFor = null;
+        users[userId].university = null;
         users[userId].status = 'idle';
         users[userId].partnerId = null;
 
-        bot.sendMessage(chatId, 'Выберите свой пол:', {
+        bot.sendMessage(chatId, 'Выберите свой университет:', {
             reply_markup: {
                 keyboard: [
-                    [{ text: 'Мужской' }, { text: 'Женский' }]
+                    [{ text: 'Университет А' }, { text: 'Университет Б' }],
+                    [{ text: 'Любой университет' }]
                 ],
                 resize_keyboard: true,
                 one_time_keyboard: true
@@ -237,7 +283,7 @@ bot.on('message', (msg) => {
         const partnerId = users[userId].partnerId;
 
         if (users[partnerId].isWebUser) {
-            const socketId = partnerId.substring(3); 
+            const socketId = partnerId.substring(3);
             io.to(socketId).emit('receiveMessage', text);
         } else {
             const partnerChatId = partnerId.substring(3); 
@@ -260,31 +306,29 @@ bot.on('message', (msg) => {
 function findPartnerForUser(userId) {
     const user = users[userId];
 
-    if (!user.gender || !user.lookingFor || user.status !== 'waiting') {
+    if (!user.gender || !user.lookingFor || !user.university || user.status !== 'waiting') {
         console.log(`Пользователь ${userId} не готов к поиску собеседника`);
         return;
     }
-
-    console.log(`Пользователь ${userId} ищет собеседника`);
-    console.log('Текущие пользователи:', users);
 
     const potentialPartners = Object.keys(users).filter(id => {
         const potentialPartner = users[id];
 
         return potentialPartner.partnerId === null
             && id !== userId
-            && potentialPartner.gender === user.lookingFor
-            && potentialPartner.lookingFor === user.gender
-            && potentialPartner.status === 'waiting';
+            && potentialPartner.status === 'waiting'
+            && (user.university === 'Любой университет' || potentialPartner.university === 'Любой университет' || potentialPartner.university === user.university)
+            && (user.lookingFor === 'Любой пол' || potentialPartner.gender === user.lookingFor || potentialPartner.gender === 'Любой пол')
+            && (potentialPartner.lookingFor === 'Любой пол' || user.gender === potentialPartner.lookingFor || user.gender === 'Любой пол');
     });
 
     if (potentialPartners.length === 0) {
         console.log('Нет подходящих партнёров, продолжаем поиск...');
         if (user.isWebUser) {
-            const socketId = userId.substring(3); // Убираем префикс 'ws_'
+            const socketId = userId.substring(3); 
             io.to(socketId).emit('waitingForPartner');
         } else {
-            const chatId = userId.substring(3); // Убираем префикс 'tg_'
+            const chatId = userId.substring(3); 
             bot.sendMessage(chatId, 'Ищу собеседника, пожалуйста подождите...');
         }
         return;
@@ -350,7 +394,14 @@ io.on('connection', (socket) => {
     const userId = 'ws_' + socket.id; 
     console.log('Пользователь подключился с вебсайта:', userId);
 
-    users[userId] = { partnerId: null, status: 'idle', gender: null, lookingFor: null, isWebUser: true };
+    users[userId] = {
+        partnerId: null,
+        status: 'idle',
+        gender: null,
+        lookingFor: null,
+        university: null,
+        isWebUser: true
+    };
 
     socket.on('disconnect', () => {
         console.log('Пользователь отключился:', userId);
@@ -380,20 +431,9 @@ io.on('connection', (socket) => {
         delete users[userId];
     });
 
-    socket.on('sendMessage', (message) => {
-        const partnerId = users[userId].partnerId;
-
-        if (partnerId && users[partnerId]) {
-            if (users[partnerId].isWebUser) {
-                const socketId = partnerId.substring(3); 
-                io.to(socketId).emit('receiveMessage', message);
-            } else {
-                const chatId = partnerId.substring(3); 
-                bot.sendMessage(chatId, message);
-            }
-        } else {
-            socket.emit('noPartner', 'Партнёр не найден.');
-        }
+    socket.on('selectUniversity', (university) => {
+        users[userId].university = university;
+        console.log(`Пользователь ${userId} выбрал университет: ${university}`);
     });
 
     socket.on('selectGender', (gender) => {
@@ -409,10 +449,20 @@ io.on('connection', (socket) => {
         findPartnerForUser(userId);
     });
 
-    socket.on('startSearching', () => {
-        users[userId].status = 'waiting';
-        console.log(`Пользователь ${userId} начал поиск собеседника`);
-        findPartnerForUser(userId);
+    socket.on('sendMessage', (message) => {
+        const partnerId = users[userId].partnerId;
+
+        if (partnerId && users[partnerId]) {
+            if (users[partnerId].isWebUser) {
+                const socketId = partnerId.substring(3); 
+                io.to(socketId).emit('receiveMessage', message);
+            } else {
+                const chatId = partnerId.substring(3); 
+                bot.sendMessage(chatId, message);
+            }
+        } else {
+            socket.emit('noPartner', 'Партнёр не найден.');
+        }
     });
 
     socket.on('endChat', () => {
