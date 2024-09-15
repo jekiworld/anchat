@@ -131,19 +131,19 @@ bot.onText(/\/end/, (msg) => {
 
 //
 
-bot.on('message', (msg) =>{
+bot.on('message', (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId;
     const text = msg.text;
 
-    if(msg.entities && msg.entities.some(entity => entity.type === 'bot_command' && text !== '/end')){
+    if (msg.entities && msg.entities.some(entity => entity.type === 'bot_command' && text !== '/end')) {
         return;
     }
 })
 //
 
-if(!users[userId] || users[userId].gender){
-    if(text === 'Мужской' || text ==='Женский') {
+if (!users[userId] || users[userId].gender) {
+    if (text === 'Мужской' || text === 'Женский') {
         users[userId].gender = text === 'Мужской' ? 'male' : 'female';
 
         bot.sendMessage(chatId, 'Кого вы хотите найти?', {
@@ -155,8 +155,8 @@ if(!users[userId] || users[userId].gender){
                 one_time_keyboard: true
             }
         });
-        
-    }else{
+
+    } else {
         bot.sendMessage(chatId, 'Пожалуйста, выберите свой пол:', {
             reply_markup: {
                 keyboard: [
@@ -170,6 +170,59 @@ if(!users[userId] || users[userId].gender){
     return;
 }
 
+
+if (!users[userId].lookingFor) {
+    if (text === 'Мужчин' || text === 'Женщин') {
+        users[userId].lookingFor = text === 'Мужчин' ? 'male' : 'female';
+
+        bot.sendMessage(chatId, `Спасибо! Вы выбрали искать ${users[userId].lookingFor === 'male' ? 'мужчин' : 'женщин'}.`, {
+            reply_markup: {
+                keyboard: [
+                    [{ text: 'Найти нового собеседника' }],
+                    [{ text: 'Изменить предпочтения' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            }
+        });
+        users[userId].status = 'idle';
+    } else {
+        bot.sendMessage(chatId, 'Пожалуйста, выберите, кого вы хотите найти:', {
+            reply_markup: {
+                keyboard: [
+                    [{ text: 'Мужчин' }, { text: 'Женщин' }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        });
+    }
+    return;
+}
+
+if (users[userId] && users[userId].partnerId) {
+    const partnerId = users[userId].partnerId;
+
+    if (users[partnerId].isWebUser) {
+        const socketId = partnerId.substring(3);
+        io.to(socketId).emit('receiveMessage', text);
+    } else {
+        const partnerChatId = partnerId.substring(3);
+        bot.sendMessage(partnerChatId, text);
+    }
+
+} else {
+    bot.sendMessage(chatId, 'У вас нет активного чата. Вы можете найти нового собеседника или изменить предпочтения.', {
+        reply_markup: {
+            keyboard: [
+                [{ text: 'Найти нового собеседника' }],
+                [{ text: 'Изменить предпочтения' }]
+            ],
+            resize_keyboard: true,
+            one_time_keyboard: false
+        }
+    });
+}
 
 function findPartnerForUser(userId) {
     const user = users[userId];
@@ -230,3 +283,4 @@ function findPartnerForUser(userId) {
         bot.sendMessage(chatIdPartner, 'Собеседник найден! Можете начинать общение.');
     }
 }
+
