@@ -284,3 +284,77 @@ function findPartnerForUser(userId) {
     }
 }
 
+function endChatForUser(userId) {
+    const user = users[userId];
+
+    if (user && user.partnerId) {
+        const partnerId = user.partnerId;
+
+        if (users[partnerId].isWebUser) {
+            const socketId = partnerId.substring(3);
+            io.to(socketId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
+        } else {
+            const chatId = partnerId.substring(3);
+            bot.sendMessage(chatId, 'Ваш собеседник завершил диалог.', {
+                reply_markup: {
+                    keyboard: [
+                        [{ text: 'Найти нового собеседника' }],
+                        [{ text: 'Изменить предпочтения' }]
+                    ],
+                    resize_keyboard: true,
+                    one_time_keyboard: false
+                }
+            });
+        }
+
+        users[userId].partnerId = null;
+        users[partnerId].partnerId = null;
+
+        users[userId].status = 'idle';
+        users[partnerId].status = 'idle';
+
+        console.log(`Чат между пользователями ${userId} и ${partnerId} завершён.`);
+    }
+}
+
+io.on('connection', (socket) => {
+    const userId = 'ws_' + socket.id;
+    console.log('Пользователь подключился с вебсайта:', userId);
+
+    users[userId] = { partnerId: null, status: 'idle', gender: null, lookingFor: null, isWebUser: true };
+
+    socket.on('disconnect', () => {
+    });
+
+    socket.on('sendMessage', (message) => {
+    });
+
+    socket.on('selectGender', (gender) => {
+        users[userId].gender = gender;
+        console.log(`Пользователь ${userId} выбрал пол: ${gender}`);
+    });
+
+    socket.on('selectLookingFor', (lookingFor) => {
+        users[userId].lookingFor = lookingFor;
+        console.log(`Пользователь ${userId} ищет: ${lookingFor}`);
+        users[userId].status = 'waiting';
+        findPartnerForUser(userId);
+    });
+
+    socket.on('startSearching', () => {
+        users[userId].status = 'waiting';
+        findPartnerForUser(userId);
+    });
+
+    socket.on('endChat', () => {
+        endChatForUser(userId);
+    });
+
+});
+
+
+const PORT = 3000;
+server.listen(PORT, () => {
+    console.log(`Сервер запущен на порту ${PORT}`);
+});
+
