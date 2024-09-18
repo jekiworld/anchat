@@ -36,7 +36,6 @@ bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId;
 
-
     if (users[userId] && users[userId].gender && users[userId].lookingFor && users[userId].university) {
         bot.sendMessage(chatId, 'Вы уже зарегистрированы. Что вы хотите сделать?', {
             reply_markup: {
@@ -60,7 +59,6 @@ bot.onText(/\/start/, (msg) => {
         university: null,
         isWebUser: false
     };
-
 
     bot.sendMessage(chatId, 'Привет! Пожалуйста, выберите свой университет:', {
         reply_markup: {
@@ -172,8 +170,15 @@ bot.on('message', (msg) => {
 
     if (!users[userId].lookingFor) {
         if (preferences.includes(text)) {
-            users[userId].lookingFor = text;
-            bot.sendMessage(chatId, `Спасибо! Вы выбрали искать ${users[userId].lookingFor.toLowerCase()}.`, {
+            if (text === 'Мужчин') {
+                users[userId].lookingFor = 'Мужской';
+            } else if (text === 'Женщин') {
+                users[userId].lookingFor = 'Женский';
+            } else {
+                users[userId].lookingFor = 'Любой пол';
+            }
+
+            bot.sendMessage(chatId, `Спасибо! Вы выбрали искать ${text.toLowerCase()}.`, {
                 reply_markup: {
                     keyboard: [
                         [{ text: 'Найти нового собеседника' }],
@@ -196,8 +201,6 @@ bot.on('message', (msg) => {
                 }
             });
         }
-        console.log(chatId, users[userId]);
-
         return;
     }
 
@@ -287,10 +290,10 @@ bot.on('message', (msg) => {
         const partnerId = users[userId].partnerId;
 
         if (users[partnerId].isWebUser) {
-            const socketId = partnerId.substring(3);
+            const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
             io.to(socketId).emit('receiveMessage', text);
         } else {
-            const partnerChatId = partnerId.substring(3);
+            const partnerChatId = partnerId.substring(3); // Убираем префикс 'tg_'
             bot.sendMessage(partnerChatId, text);
         }
     } else {
@@ -329,10 +332,10 @@ function findPartnerForUser(userId) {
     if (potentialPartners.length === 0) {
         console.log('Нет подходящих партнёров, продолжаем поиск...');
         if (user.isWebUser) {
-            const socketId = userId.substring(3);
+            const socketId = userId.substring(3); // Убираем префикс 'ws_'
             io.to(socketId).emit('waitingForPartner');
         } else {
-            const chatId = userId.substring(3);
+            const chatId = userId.substring(3); // Убираем префикс 'tg_'
             bot.sendMessage(chatId, 'Ищу собеседника, пожалуйста подождите...');
         }
         return;
@@ -347,15 +350,15 @@ function findPartnerForUser(userId) {
     users[partnerId].status = 'chatting';
 
     if (users[partnerId].isWebUser) {
-        const socketId = partnerId.substring(3);
+        const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
         io.to(socketId).emit('partnerFound', { partnerId: userId, isTelegramUser: !users[userId].isWebUser });
         if (!users[userId].isWebUser) {
-            const chatId = userId.substring(3);
+            const chatId = userId.substring(3); // Убираем префикс 'tg_'
             bot.sendMessage(chatId, 'Собеседник найден! Вы общаетесь с пользователем с вебсайта.');
         }
     } else {
-        const chatIdUser = userId.substring(3);
-        const chatIdPartner = partnerId.substring(3);
+        const chatIdUser = userId.substring(3); // Убираем префикс 'tg_'
+        const chatIdPartner = partnerId.substring(3); // Убираем префикс 'tg_'
         bot.sendMessage(chatIdUser, 'Собеседник найден! Можете начинать общение.');
         bot.sendMessage(chatIdPartner, 'Собеседник найден! Можете начинать общение.');
     }
@@ -368,10 +371,10 @@ function endChatForUser(userId) {
         const partnerId = user.partnerId;
 
         if (users[partnerId].isWebUser) {
-            const socketId = partnerId.substring(3);
+            const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
             io.to(socketId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
         } else {
-            const chatId = partnerId.substring(3);
+            const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
             bot.sendMessage(chatId, 'Ваш собеседник завершил диалог.', {
                 reply_markup: {
                     keyboard: [
@@ -395,7 +398,7 @@ function endChatForUser(userId) {
 }
 
 io.on('connection', (socket) => {
-    const userId = 'ws_' + socket.id;
+    const userId = 'ws_' + socket.id; // Добавляем префикс
     console.log('Пользователь подключился с вебсайта:', userId);
 
     users[userId] = {
@@ -413,10 +416,10 @@ io.on('connection', (socket) => {
         const partnerId = users[userId].partnerId;
         if (partnerId) {
             if (users[partnerId].isWebUser) {
-                const socketId = partnerId.substring(3);
+                const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
                 io.to(socketId).emit('chatEnded', 'Ваш собеседник отключился.');
             } else {
-                const chatId = partnerId.substring(3);
+                const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
                 bot.sendMessage(chatId, 'Ваш собеседник с вебсайта отключился.', {
                     reply_markup: {
                         keyboard: [
@@ -446,24 +449,41 @@ io.on('connection', (socket) => {
     });
 
     socket.on('selectLookingFor', (lookingFor) => {
-        users[userId].lookingFor = lookingFor;
-        console.log(`Пользователь ${userId} ищет: ${lookingFor}`);
+        if (lookingFor === 'Мужчин') {
+            users[userId].lookingFor = 'Мужской';
+        } else if (lookingFor === 'Женщин') {
+            users[userId].lookingFor = 'Женский';
+        } else {
+            users[userId].lookingFor = 'Любой пол';
+        }
+
+        console.log(`Пользователь ${userId} ищет: ${users[userId].lookingFor}`);
         users[userId].status = 'waiting';
         console.log(`Статус пользователя ${userId} изменён на 'waiting'`);
+
+        check(userId);
+
         findPartnerForUser(userId);
     });
 
+    socket.on('startSearching', () => {
+        users[userId].status = 'waiting';
+        console.log(`Пользователь ${userId} начал поиск собеседника`);
+
+        check(userId);
+
+        findPartnerForUser(userId);
+    });
 
     socket.on('sendMessage', (message) => {
         const partnerId = users[userId].partnerId;
-        
 
         if (partnerId && users[partnerId]) {
             if (users[partnerId].isWebUser) {
-                const socketId = partnerId.substring(3);
+                const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
                 io.to(socketId).emit('receiveMessage', message);
             } else {
-                const chatId = partnerId.substring(3);
+                const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
                 bot.sendMessage(chatId, message);
             }
         } else {
@@ -471,21 +491,18 @@ io.on('connection', (socket) => {
         }
     });
 
-
-    // function check(userId){
-    //     if(users[userId].partnerId && users[userId].gender && users[userId].lookingFor && users[userId].university){
-    //         console.log(userId, users[userId]);
-    //     }
-    // }
-    
-    // // Вызываем функцию с полным userId
-    // check(userId);
-    
-
     socket.on('endChat', () => {
         endChatForUser(userId);
     });
 });
+
+function check(userId){
+    if(users[userId] && users[userId].partnerId && users[userId].gender && users[userId].lookingFor && users[userId].university){
+        console.log(`Все данные для пользователя ${userId} заполнены:`, users[userId]);
+    } else {
+        console.log(`Пользователь ${userId} не заполнил все данные.`);
+    }
+}
 
 const PORT = 3000;
 server.listen(PORT, () => {

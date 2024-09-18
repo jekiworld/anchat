@@ -1,7 +1,5 @@
-// Подключаемся к серверу через Socket.IO
 const socket = io();
 
-// Элементы интерфейса
 const registrationDiv = document.getElementById('registration');
 const selectUniversityDiv = document.getElementById('selectUniversity');
 const selectGenderDiv = document.getElementById('selectGender');
@@ -13,12 +11,10 @@ const messageInput = document.getElementById('message');
 const sendBtn = document.getElementById('sendBtn');
 const endChatBtn = document.getElementById('endChatBtn');
 
-// Переменные для хранения выбранных опций
 let university = null;
 let gender = null;
 let lookingFor = null;
 
-// Выбор университета
 const universityButtons = document.querySelectorAll('.university-btn');
 universityButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -29,7 +25,6 @@ universityButtons.forEach(button => {
     });
 });
 
-// Выбор пола
 const genderButtons = document.querySelectorAll('.gender-btn');
 genderButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -40,7 +35,6 @@ genderButtons.forEach(button => {
     });
 });
 
-// Выбор предпочтений
 const lookingForButtons = document.querySelectorAll('.lookingfor-btn');
 lookingForButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -51,7 +45,6 @@ lookingForButtons.forEach(button => {
     });
 });
 
-// Начало поиска собеседника
 const startChatBtn = document.getElementById('startChatBtn');
 startChatBtn.addEventListener('click', () => {
     startChatDiv.style.display = 'none';
@@ -61,7 +54,6 @@ startChatBtn.addEventListener('click', () => {
     socket.emit('startSearching');
 });
 
-// Отправка сообщения
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', function(event) {
     if (event.key === 'Enter') {
@@ -89,7 +81,6 @@ function appendMessage(message, sender = 'other') {
     chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
-// Завершение чата
 endChatBtn.addEventListener('click', () => {
     socket.emit('endChat');
     chatDiv.style.display = 'none';
@@ -99,7 +90,6 @@ endChatBtn.addEventListener('click', () => {
     alert('Вы завершили чат.');
 });
 
-// Обработка событий от сервера
 socket.on('receiveMessage', (message) => {
     appendMessage('Собеседник: ' + message);
 });
