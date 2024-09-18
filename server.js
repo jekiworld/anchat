@@ -3,12 +3,18 @@ const http = require('http');
 const { Server } = require('socket.io');
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(__dirname));
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const token = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
@@ -31,6 +37,63 @@ let users = {};
 const universities = ['Университет А', 'Университет Б', 'Любой университет'];
 const genders = ['Мужской', 'Женский', 'Любой пол'];
 const preferences = ['Мужчин', 'Женщин', 'Любой пол'];
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/');
+    },
+    filename: function (req, file, cb) {
+        const uniqueName = uuidv4() + path.extname(file.originalname);
+        cb(null, uniqueName);
+    }
+});
+
+const upload = multer({ storage: storage });
+
+if (!fs.existsSync('uploads')) {
+    fs.mkdirSync('uploads');
+}
+
+app.post('/upload', upload.single('file'), (req, res) => {
+    const file = req.file;
+    const userId = 'ws_' + req.body.userId;
+
+    if (file && users[userId]) {
+        const partnerId = users[userId].partnerId;
+
+        if (partnerId && users[partnerId]) {
+            if (users[partnerId].isWebUser) {
+                const fileUrl = `/uploads/${file.filename}`;
+                const socketId = partnerId.substring(3);
+                io.to(socketId).emit('receiveMessage', { type: req.body.type, content: fileUrl });
+            } else {
+                const chatId = partnerId.substring(3);
+                const filePath = path.join(__dirname, 'uploads', file.filename);
+
+                fs.access(filePath, fs.constants.F_OK, (err) => {
+                    if (err) {
+                        return res.status(500).send('Файл не найден.');
+                    }
+
+                    if (req.body.type === 'photo') {
+                        bot.sendPhoto(chatId, fs.createReadStream(filePath)).catch(console.error);
+                    } else if (req.body.type === 'video') {
+                        bot.sendVideo(chatId, fs.createReadStream(filePath)).catch(console.error);
+                    }
+
+                    setTimeout(() => {
+                        fs.unlink(filePath, (err) => {
+                            if (err) console.error(err);
+                        });
+                    }, 60000);
+                });
+            }
+        }
+        res.sendStatus(200);
+    } else {
+        res.sendStatus(400);
+    }
+});
 
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
@@ -103,7 +166,7 @@ bot.onText(/\/end/, (msg) => {
     users[userId].status = 'idle';
 });
 
-bot.on('message', (msg) => {
+bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId;
     const text = msg.text;
@@ -289,12 +352,43 @@ bot.on('message', (msg) => {
     if (users[userId] && users[userId].partnerId) {
         const partnerId = users[userId].partnerId;
 
-        if (users[partnerId].isWebUser) {
-            const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
-            io.to(socketId).emit('receiveMessage', text);
+        if (text) {
+            if (users[partnerId].isWebUser) {
+                const socketId = partnerId.substring(3);
+                io.to(socketId).emit('receiveMessage', { type: 'text', content: text });
+            } else {
+                const partnerChatId = partnerId.substring(3);
+                bot.sendMessage(partnerChatId, text);
+            }
+        } else if (msg.photo) {
+            const photo = msg.photo[msg.photo.length - 1];
+            const fileId = photo.file_id;
+
+            const file = await bot.getFile(fileId);
+            const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+
+            if (users[partnerId].isWebUser) {
+                const socketId = partnerId.substring(3);
+                io.to(socketId).emit('receiveMessage', { type: 'photo', content: fileUrl });
+            } else {
+                const partnerChatId = partnerId.substring(3);
+                bot.sendPhoto(partnerChatId, fileId);
+            }
+        } else if (msg.video) {
+            const fileId = msg.video.file_id;
+
+            const file = await bot.getFile(fileId);
+            const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+
+            if (users[partnerId].isWebUser) {
+                const socketId = partnerId.substring(3);
+                io.to(socketId).emit('receiveMessage', { type: 'video', content: fileUrl });
+            } else {
+                const partnerChatId = partnerId.substring(3);
+                bot.sendVideo(partnerChatId, fileId);
+            }
         } else {
-            const partnerChatId = partnerId.substring(3); // Убираем префикс 'tg_'
-            bot.sendMessage(partnerChatId, text);
+            bot.sendMessage(chatId, 'Извините, этот тип сообщений не поддерживается.');
         }
     } else {
         bot.sendMessage(chatId, 'У вас нет активного чата. Вы можете найти нового собеседника или изменить предпочтения.', {
@@ -314,7 +408,6 @@ function findPartnerForUser(userId) {
     const user = users[userId];
 
     if (!user.gender || !user.lookingFor || !user.university || user.status !== 'waiting') {
-        console.log(`Пользователь ${userId} не готов к поиску собеседника`);
         return;
     }
 
@@ -330,12 +423,11 @@ function findPartnerForUser(userId) {
     });
 
     if (potentialPartners.length === 0) {
-        console.log('Нет подходящих партнёров, продолжаем поиск...');
         if (user.isWebUser) {
-            const socketId = userId.substring(3); // Убираем префикс 'ws_'
+            const socketId = userId.substring(3);
             io.to(socketId).emit('waitingForPartner');
         } else {
-            const chatId = userId.substring(3); // Убираем префикс 'tg_'
+            const chatId = userId.substring(3);
             bot.sendMessage(chatId, 'Ищу собеседника, пожалуйста подождите...');
         }
         return;
@@ -350,15 +442,15 @@ function findPartnerForUser(userId) {
     users[partnerId].status = 'chatting';
 
     if (users[partnerId].isWebUser) {
-        const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
+        const socketId = partnerId.substring(3);
         io.to(socketId).emit('partnerFound', { partnerId: userId, isTelegramUser: !users[userId].isWebUser });
         if (!users[userId].isWebUser) {
-            const chatId = userId.substring(3); // Убираем префикс 'tg_'
+            const chatId = userId.substring(3);
             bot.sendMessage(chatId, 'Собеседник найден! Вы общаетесь с пользователем с вебсайта.');
         }
     } else {
-        const chatIdUser = userId.substring(3); // Убираем префикс 'tg_'
-        const chatIdPartner = partnerId.substring(3); // Убираем префикс 'tg_'
+        const chatIdUser = userId.substring(3);
+        const chatIdPartner = partnerId.substring(3);
         bot.sendMessage(chatIdUser, 'Собеседник найден! Можете начинать общение.');
         bot.sendMessage(chatIdPartner, 'Собеседник найден! Можете начинать общение.');
     }
@@ -371,10 +463,10 @@ function endChatForUser(userId) {
         const partnerId = user.partnerId;
 
         if (users[partnerId].isWebUser) {
-            const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
+            const socketId = partnerId.substring(3);
             io.to(socketId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
         } else {
-            const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
+            const chatId = partnerId.substring(3);
             bot.sendMessage(chatId, 'Ваш собеседник завершил диалог.', {
                 reply_markup: {
                     keyboard: [
@@ -392,14 +484,11 @@ function endChatForUser(userId) {
 
         users[userId].status = 'idle';
         users[partnerId].status = 'idle';
-
-        console.log(`Чат между пользователями ${userId} и ${partnerId} завершён.`);
     }
 }
 
 io.on('connection', (socket) => {
-    const userId = 'ws_' + socket.id; // Добавляем префикс
-    console.log('Пользователь подключился с вебсайта:', userId);
+    const userId = 'ws_' + socket.id;
 
     users[userId] = {
         partnerId: null,
@@ -411,15 +500,13 @@ io.on('connection', (socket) => {
     };
 
     socket.on('disconnect', () => {
-        console.log('Пользователь отключился:', userId);
-
         const partnerId = users[userId].partnerId;
         if (partnerId) {
             if (users[partnerId].isWebUser) {
-                const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
+                const socketId = partnerId.substring(3);
                 io.to(socketId).emit('chatEnded', 'Ваш собеседник отключился.');
             } else {
-                const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
+                const chatId = partnerId.substring(3);
                 bot.sendMessage(chatId, 'Ваш собеседник с вебсайта отключился.', {
                     reply_markup: {
                         keyboard: [
@@ -440,12 +527,10 @@ io.on('connection', (socket) => {
 
     socket.on('selectUniversity', (university) => {
         users[userId].university = university;
-        console.log(`Пользователь ${userId} выбрал университет: ${university}`);
     });
 
     socket.on('selectGender', (gender) => {
         users[userId].gender = gender;
-        console.log(`Пользователь ${userId} выбрал пол: ${gender}`);
     });
 
     socket.on('selectLookingFor', (lookingFor) => {
@@ -456,35 +541,31 @@ io.on('connection', (socket) => {
         } else {
             users[userId].lookingFor = 'Любой пол';
         }
-
-        console.log(`Пользователь ${userId} ищет: ${users[userId].lookingFor}`);
-        users[userId].status = 'waiting';
-        console.log(`Статус пользователя ${userId} изменён на 'waiting'`);
-
-        check(userId);
-
-        findPartnerForUser(userId);
+        users[userId].status = 'idle';
     });
 
     socket.on('startSearching', () => {
         users[userId].status = 'waiting';
-        console.log(`Пользователь ${userId} начал поиск собеседника`);
-
-        check(userId);
-
         findPartnerForUser(userId);
     });
 
-    socket.on('sendMessage', (message) => {
+    socket.on('sendMessage', (data) => {
         const partnerId = users[userId].partnerId;
 
         if (partnerId && users[partnerId]) {
             if (users[partnerId].isWebUser) {
-                const socketId = partnerId.substring(3); // Убираем префикс 'ws_'
-                io.to(socketId).emit('receiveMessage', message);
+                const socketId = partnerId.substring(3);
+                io.to(socketId).emit('receiveMessage', data);
             } else {
-                const chatId = partnerId.substring(3); // Убираем префикс 'tg_'
-                bot.sendMessage(chatId, message);
+                const chatId = partnerId.substring(3);
+
+                if (data.type === 'text') {
+                    bot.sendMessage(chatId, data.content);
+                } else if (data.type === 'photo') {
+                    bot.sendPhoto(chatId, data.content);
+                } else if (data.type === 'video') {
+                    bot.sendVideo(chatId, data.content);
+                }
             }
         } else {
             socket.emit('noPartner', 'Партнёр не найден.');
@@ -495,14 +576,6 @@ io.on('connection', (socket) => {
         endChatForUser(userId);
     });
 });
-
-function check(userId){
-    if(users[userId] && users[userId].partnerId && users[userId].gender && users[userId].lookingFor && users[userId].university){
-        console.log(`Все данные для пользователя ${userId} заполнены:`, users[userId]);
-    } else {
-        console.log(`Пользователь ${userId} не заполнил все данные.`);
-    }
-}
 
 const PORT = 3000;
 server.listen(PORT, () => {
