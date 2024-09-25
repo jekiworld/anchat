@@ -166,6 +166,7 @@ bot.onText(/\/end/, (msg) => {
     users[userId].status = 'idle';
 });
 
+// Обработка видео-сообщений (кружков)
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId;
@@ -175,6 +176,24 @@ bot.on('message', async (msg) => {
         return;
     }
 
+    // Если пользователь не существует в системе, инициализируем его
+    if (!users[userId]) {
+        users[userId] = {
+            partnerId: null,
+            status: 'idle',
+            gender: null,
+            lookingFor: null,
+            university: null,
+            isWebUser: false
+        };
+    }
+
+    // Игнорируем команды бота, кроме /end
+    if (msg.entities && msg.entities.some(entity => entity.type === 'bot_command' && text !== '/end')) {
+        return;
+    }
+
+    // Проверка выбора университета
     if (!users[userId].university) {
         if (universities.includes(text)) {
             users[userId].university = text;
@@ -203,6 +222,7 @@ bot.on('message', async (msg) => {
         return;
     }
 
+    // Проверка выбора пола
     if (!users[userId].gender) {
         if (genders.includes(text)) {
             users[userId].gender = text;
@@ -231,6 +251,7 @@ bot.on('message', async (msg) => {
         return;
     }
 
+    // Проверка выбора предпочтений
     if (!users[userId].lookingFor) {
         if (preferences.includes(text)) {
             if (text === 'Мужчин') {
@@ -267,6 +288,7 @@ bot.on('message', async (msg) => {
         return;
     }
 
+    // Обработка команды "Изменить предпочтения"
     if (text === 'Изменить предпочтения') {
         users[userId].gender = null;
         users[userId].lookingFor = null;
@@ -349,9 +371,11 @@ bot.on('message', async (msg) => {
         return;
     }
 
+    // Пересылка сообщений между пользователями
     if (users[userId] && users[userId].partnerId) {
         const partnerId = users[userId].partnerId;
 
+        // Обработка текстовых сообщений
         if (text) {
             if (users[partnerId].isWebUser) {
                 const socketId = partnerId.substring(3);
@@ -360,10 +384,13 @@ bot.on('message', async (msg) => {
                 const partnerChatId = partnerId.substring(3);
                 bot.sendMessage(partnerChatId, text);
             }
-        } else if (msg.photo) {
+        }
+        // Обработка фото
+        else if (msg.photo) {
             const photo = msg.photo[msg.photo.length - 1];
             const fileId = photo.file_id;
 
+            // Получаем ссылку на файл
             const file = await bot.getFile(fileId);
             const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
@@ -374,20 +401,25 @@ bot.on('message', async (msg) => {
                 const partnerChatId = partnerId.substring(3);
                 bot.sendPhoto(partnerChatId, fileId);
             }
-        } else if (msg.video) {
-            const fileId = msg.video.file_id;
+        }
+        // Обработка видео-сообщений (кружков)
+        else if (msg.video_note) {
+            const fileId = msg.video_note.file_id;
 
+            // Получаем ссылку на файл
             const file = await bot.getFile(fileId);
             const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
             if (users[partnerId].isWebUser) {
                 const socketId = partnerId.substring(3);
-                io.to(socketId).emit('receiveMessage', { type: 'video', content: fileUrl });
+                io.to(socketId).emit('receiveMessage', { type: 'video_note', content: fileUrl });
             } else {
                 const partnerChatId = partnerId.substring(3);
-                bot.sendVideo(partnerChatId, fileId);
+                bot.sendVideoNote(partnerChatId, fileId);
             }
-        } else {
+        }
+        // Обработка других типов сообщений (опционально)
+        else {
             bot.sendMessage(chatId, 'Извините, этот тип сообщений не поддерживается.');
         }
     } else {
@@ -403,6 +435,52 @@ bot.on('message', async (msg) => {
         });
     }
 });
+
+// Добавление возможности отправки кружков с веб-клиента
+app.post('/upload', upload.single('file'), (req, res) => {
+    const file = req.file;
+    const userId = 'ws_' + req.body.userId;
+
+    if (file && users[userId]) {
+        const partnerId = users[userId].partnerId;
+
+        if (partnerId && users[partnerId]) {
+            if (users[partnerId].isWebUser) {
+                const fileUrl = `/uploads/${file.filename}`;
+                const socketId = partnerId.substring(3);
+                io.to(socketId).emit('receiveMessage', { type: req.body.type, content: fileUrl });
+            } else {
+                const chatId = partnerId.substring(3);
+                const filePath = path.join(__dirname, 'uploads', file.filename);
+
+                fs.access(filePath, fs.constants.F_OK, (err) => {
+                    if (err) {
+                        return res.status(500).send('Файл не найден.');
+                    }
+
+                    if (req.body.type === 'photo') {
+                        bot.sendPhoto(chatId, fs.createReadStream(filePath)).catch(console.error);
+                    } else if (req.body.type === 'video') {
+                        bot.sendVideo(chatId, fs.createReadStream(filePath)).catch(console.error);
+                    } else if (req.body.type === 'video_note') {
+                        bot.sendVideoNote(chatId, fs.createReadStream(filePath)).catch(console.error);
+                    }
+
+                    setTimeout(() => {
+                        fs.unlink(filePath, (err) => {
+                            if (err) console.error(err);
+                        });
+                    }, 60000);
+                });
+            }
+        }
+        res.sendStatus(200);
+    } else {
+        res.sendStatus(400);
+    }
+});
+
+
 
 function findPartnerForUser(userId) {
     const user = users[userId];
