@@ -1,16 +1,24 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const mongoose = require('mongoose');
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const Chat = require('./models/chat');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+
+mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('Подключено к MongoDB'))
+    .catch(err => console.error('Ошибка подключения к MongoDB:', err));
+
 
 app.use(express.static(__dirname));
 
@@ -384,6 +392,18 @@ bot.on('message', async (msg) => {
                 const partnerChatId = partnerId.substring(3);
                 bot.sendMessage(partnerChatId, text);
             }
+
+            // Сохранение текстового сообщения в базу данных
+            const chatMessage = new Chat({
+                senderId: userId,
+                receiverId: partnerId,
+                content: text,
+                messageType: 'text'
+            });
+
+            await chatMessage.save()
+                .then(() => console.log('Текстовое сообщение сохранено в MongoDB'))
+                .catch(err => console.error('Ошибка при сохранении сообщения:', err));
         }
         // Обработка фото
         else if (msg.photo) {
@@ -401,6 +421,18 @@ bot.on('message', async (msg) => {
                 const partnerChatId = partnerId.substring(3);
                 bot.sendPhoto(partnerChatId, fileId);
             }
+
+            // Сохранение фото в базу данных
+            const chatMessage = new Chat({
+                senderId: userId,
+                receiverId: partnerId,
+                content: fileUrl,
+                messageType: 'photo'
+            });
+
+            await chatMessage.save()
+                .then(() => console.log('Фото сохранено в MongoDB'))
+                .catch(err => console.error('Ошибка при сохранении фото:', err));
         }
         // Обработка видео-сообщений (кружков)
         else if (msg.video_note) {
@@ -417,6 +449,18 @@ bot.on('message', async (msg) => {
                 const partnerChatId = partnerId.substring(3);
                 bot.sendVideoNote(partnerChatId, fileId);
             }
+
+            // Сохранение видео-сообщений в базу данных
+            const chatMessage = new Chat({
+                senderId: userId,
+                receiverId: partnerId,
+                content: fileUrl,
+                messageType: 'video_note'
+            });
+
+            await chatMessage.save()
+                .then(() => console.log('Видео-сообщение сохранено в MongoDB'))
+                .catch(err => console.error('Ошибка при сохранении видео-сообщения:', err));
         }
         // Обработка других типов сообщений (опционально)
         else {
@@ -627,16 +671,34 @@ io.on('connection', (socket) => {
         findPartnerForUser(userId);
     });
 
-    socket.on('sendMessage', (data) => {
+    socket.on('sendMessage', async (data) => {
         const partnerId = users[userId].partnerId;
+        const { senderId, receiverId, content, messageType } = data;
+
+        const chatMessage = new Chat({
+            senderId,
+            receiverId,
+            content,
+            messageType
+        });
 
         if (partnerId && users[partnerId]) {
+            const chatMessage = new Chat({
+                senderId: userId,
+                receiverId: partnerId,
+                content: data.content,
+                messageType: data.type
+            });
+
+            await chatMessage.save()
+                .then(() => console.log('Сообщение сохранено'))
+                .catch(err => console.error('Ошибка при сохранении сообщения:', err));
+
             if (users[partnerId].isWebUser) {
                 const socketId = partnerId.substring(3);
                 io.to(socketId).emit('receiveMessage', data);
             } else {
                 const chatId = partnerId.substring(3);
-
                 if (data.type === 'text') {
                     bot.sendMessage(chatId, data.content);
                 } else if (data.type === 'photo') {
@@ -649,6 +711,7 @@ io.on('connection', (socket) => {
             socket.emit('noPartner', 'Партнёр не найден.');
         }
     });
+
 
     socket.on('endChat', () => {
         endChatForUser(userId);
