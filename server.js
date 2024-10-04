@@ -390,10 +390,25 @@ bot.on('message', async (msg) => {
                 io.to(socketId).emit('receiveMessage', { type: 'text', content: text });
             } else {
                 const partnerChatId = partnerId.substring(3);
-                bot.sendMessage(partnerChatId, text);
+
+                // Добавляем отправку с повторной попыткой
+                const sendWithRetry = (chatId, message, retries = 3, delay = 1000) => {
+                    bot.sendMessage(chatId, message)
+                        .catch((error) => {
+                            if (error.response && error.response.statusCode === 400 && retries > 0) {
+                                console.warn('Ошибка 400, повтор через 1 сек.', chatId);
+                                setTimeout(() => sendWithRetry(chatId, message, retries - 1), delay);
+                            } else {
+                                console.error('Произошла ошибка при отправке сообщения:', error);
+                            }
+                        });
+                };
+
+                // Вызываем отправку сообщения с проверкой
+                sendWithRetry(partnerChatId, text);
             }
 
-            // Сохранение текстового сообщения в базу данных
+            // Сохранение сообщения в базу данных
             const chatMessage = new Chat({
                 senderId: userId,
                 receiverId: partnerId,
@@ -405,6 +420,7 @@ bot.on('message', async (msg) => {
                 .then(() => console.log('Текстовое сообщение сохранено в MongoDB'))
                 .catch(err => console.error('Ошибка при сохранении сообщения:', err));
         }
+
         // Обработка фото
         else if (msg.photo) {
             const photo = msg.photo[msg.photo.length - 1];
@@ -419,7 +435,22 @@ bot.on('message', async (msg) => {
                 io.to(socketId).emit('receiveMessage', { type: 'photo', content: fileUrl });
             } else {
                 const partnerChatId = partnerId.substring(3);
-                bot.sendPhoto(partnerChatId, fileId);
+
+                // Добавляем отправку с повторной попыткой
+                const sendPhotoWithRetry = (chatId, fileId, retries = 3, delay = 1000) => {
+                    bot.sendPhoto(chatId, fileId)
+                        .catch((error) => {
+                            if (error.response && error.response.statusCode === 400 && retries > 0) {
+                                console.warn('Ошибка 400, повтор через 1 сек.', chatId);
+                                setTimeout(() => sendPhotoWithRetry(chatId, fileId, retries - 1), delay);
+                            } else {
+                                console.error('Произошла ошибка при отправке фото:', error);
+                            }
+                        });
+                };
+
+                // Вызываем отправку фото с проверкой
+                sendPhotoWithRetry(partnerChatId, fileId);
             }
 
             // Сохранение фото в базу данных
