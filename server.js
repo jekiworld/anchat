@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const Chat = require('./models/chat');
-
+const { getChatBetweenUsers } = require('./chatController');  // Импорт функции
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -19,11 +19,45 @@ mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTop
     .then(() => console.log('Подключено к MongoDB'))
     .catch(err => console.error('Ошибка подключения к MongoDB:', err));
 
+// Функция для сохранения сообщений в чат
+const saveMessageInChat = async (senderId, receiverId, content, messageType) => {
+    try {
+        // Поиск существующего чата между двумя пользователями
+        let chat = await Chat.findOne({ participants: { $all: [senderId, receiverId] } });
+
+        if (!chat) {
+            // Если чат не найден, создаём новый
+            chat = new Chat({
+                participants: [senderId, receiverId],
+                messages: []
+            });
+        }
+
+        // Добавляем новое сообщение в массив сообщений
+        chat.messages.push({
+            senderId,
+            content,
+            messageType
+        });
+
+        // Сохраняем обновлённый чат
+         chat.save();
+        console.log('Сообщение успешно добавлено в чат.');
+    } catch (error) {
+        console.error('Ошибка при сохранении сообщения:', error);
+    }
+};
+
 
 app.use(express.static(__dirname));
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+app.get('/chat/:userId1/:userId2', async (req, res) => {
+    const { userId1, userId2 } = req.params;
+    const messages = await getChatBetweenUsers(userId1, userId2);
+    res.json(messages);
+});
 const token = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
@@ -390,36 +424,14 @@ bot.on('message', async (msg) => {
                 io.to(socketId).emit('receiveMessage', { type: 'text', content: text });
             } else {
                 const partnerChatId = partnerId.substring(3);
-
-                // Добавляем отправку с повторной попыткой
-                const sendWithRetry = (chatId, message, retries = 3, delay = 1000) => {
-                    bot.sendMessage(chatId, message)
-                        .catch((error) => {
-                            if (error.response && error.response.statusCode === 400 && retries > 0) {
-                                console.warn('Ошибка 400, повтор через 1 сек.', chatId);
-                                setTimeout(() => sendWithRetry(chatId, message, retries - 1), delay);
-                            } else {
-                                console.error('Произошла ошибка при отправке сообщения:', error);
-                            }
-                        });
-                };
-
-                // Вызываем отправку сообщения с проверкой
                 sendWithRetry(partnerChatId, text);
             }
 
-            // Сохранение сообщения в базу данных
-            const chatMessage = new Chat({
-                senderId: userId,
-                receiverId: partnerId,
-                content: text,
-                messageType: 'text'
-            });
-
-            await chatMessage.save()
-                .then(() => console.log('Текстовое сообщение сохранено в MongoDB'))
-                .catch(err => console.error('Ошибка при сохранении сообщения:', err));
+            // Сохранение сообщения в переписку между senderId и receiverId
+             saveMessageInChat(userId, partnerId, text, 'text');
         }
+
+
 
         // Обработка фото
         else if (msg.photo) {
@@ -466,8 +478,9 @@ bot.on('message', async (msg) => {
                 .catch(err => console.error('Ошибка при сохранении фото:', err));
         }
         // Обработка видео-сообщений (кружков)
-        else if (msg.video_note) {
-            const fileId = msg.video_note.file_id;
+        else if (msg.photo) {
+            const photo = msg.photo[msg.photo.length - 1];
+            const fileId = photo.file_id;
 
             // Получаем ссылку на файл
             const file = await bot.getFile(fileId);
@@ -475,24 +488,16 @@ bot.on('message', async (msg) => {
 
             if (users[partnerId].isWebUser) {
                 const socketId = partnerId.substring(3);
-                io.to(socketId).emit('receiveMessage', { type: 'video_note', content: fileUrl });
+                io.to(socketId).emit('receiveMessage', { type: 'photo', content: fileUrl });
             } else {
                 const partnerChatId = partnerId.substring(3);
-                bot.sendVideoNote(partnerChatId, fileId);
+                sendPhotoWithRetry(partnerChatId, fileId);
             }
 
-            // Сохранение видео-сообщений в базу данных
-            const chatMessage = new Chat({
-                senderId: userId,
-                receiverId: partnerId,
-                content: fileUrl,
-                messageType: 'video_note'
-            });
-
-            await chatMessage.save()
-                .then(() => console.log('Видео-сообщение сохранено в MongoDB'))
-                .catch(err => console.error('Ошибка при сохранении видео-сообщения:', err));
+            // Сохранение фото в переписку между senderId и receiverId
+            await saveMessageInChat(userId, partnerId, fileUrl, 'photo');
         }
+
         // Обработка других типов сообщений (опционально)
         else {
             bot.sendMessage(chatId, 'Извините, этот тип сообщений не поддерживается.');
