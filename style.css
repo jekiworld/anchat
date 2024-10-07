@@ -80,3 +80,9 @@ img {
 video {
     max-width: 100%;
 }
+
+
+.sticker {
+    width: 100px;
+    height: auto;
+}

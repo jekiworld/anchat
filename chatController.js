@@ -1,3 +1,4 @@
+// chatController.js
 const Chat = require('./models/chat');  // Импорт модели
 
 // Функция для поиска переписки между двумя пользователями

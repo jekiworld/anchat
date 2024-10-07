@@ -1,3 +1,4 @@
+// models/chat.js
 const mongoose = require('mongoose');
 
 // Определяем схему для сообщений

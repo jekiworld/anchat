@@ -1,4 +1,3 @@
-
 const socket = io();
 
 const registrationDiv = document.getElementById('registration');
@@ -13,11 +12,13 @@ const sendBtn = document.getElementById('sendBtn');
 const endChatBtn = document.getElementById('endChatBtn');
 const attachBtn = document.getElementById('attachBtn');
 const fileInput = document.getElementById('fileInput');
+const stickerBtn = document.getElementById('stickerBtn');
 
 let university = null;
 let gender = null;
 let lookingFor = null;
 
+// Университет
 const universityButtons = document.querySelectorAll('.university-btn');
 universityButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -28,6 +29,7 @@ universityButtons.forEach(button => {
     });
 });
 
+// Пол
 const genderButtons = document.querySelectorAll('.gender-btn');
 genderButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -38,6 +40,7 @@ genderButtons.forEach(button => {
     });
 });
 
+// Предпочтение
 const lookingForButtons = document.querySelectorAll('.lookingfor-btn');
 lookingForButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -47,6 +50,8 @@ lookingForButtons.forEach(button => {
         startChatDiv.style.display = 'block';
     });
 });
+
+// Кнопка для начала поиска собеседника
 const startChatBtn = document.getElementById('startChatBtn');
 startChatBtn.addEventListener('click', () => {
     startChatDiv.style.display = 'none';
@@ -56,11 +61,19 @@ startChatBtn.addEventListener('click', () => {
     socket.emit('startSearching');
 });
 
+// Отправка сообщения
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', function (event) {
     if (event.key === 'Enter') {
         sendMessage();
     }
+});
+
+stickerBtn.addEventListener('click', () => {
+    // Открываем диалог выбора файла для стикера
+    fileInput.accept = 'image/*';
+    fileInput.dataset.isSticker = 'true';
+    fileInput.click();
 });
 
 function sendMessage() {
@@ -83,6 +96,7 @@ function appendMessage(message, sender = 'other') {
     chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
+// Получение сообщения от партнера
 socket.on('receiveMessage', (data) => {
     if (data.type === 'text') {
         appendMessage('Собеседник: ' + data.content);
@@ -90,8 +104,22 @@ socket.on('receiveMessage', (data) => {
         appendImage(data.content);
     } else if (data.type === 'video') {
         appendVideo(data.content);
+    } else if (data.type === 'sticker') {
+        appendSticker(data.content);
     }
 });
+
+
+function appendSticker(url) {
+    const messageElement = document.createElement('div');
+    messageElement.classList.add('message');
+    const img = document.createElement('img');
+    img.src = url;
+    img.classList.add('sticker');
+    messageElement.appendChild(img);
+    chatWindow.appendChild(messageElement);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+}
 
 function appendImage(url) {
     const messageElement = document.createElement('div');
@@ -114,6 +142,7 @@ function appendVideo(url) {
     chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
+// Завершение чата
 endChatBtn.addEventListener('click', () => {
     socket.emit('endChat');
     chatDiv.style.display = 'none';
@@ -143,7 +172,10 @@ socket.on('noPartner', (message) => {
     alert(message);
 });
 
+// Прикрепление файла
 attachBtn.addEventListener('click', () => {
+    fileInput.accept = 'image/*,video/*';
+    fileInput.dataset.isSticker = 'false';
     fileInput.click();
 });
 
@@ -154,7 +186,9 @@ fileInput.addEventListener('change', () => {
         formData.append('file', file);
 
         let fileType = '';
-        if (file.type.startsWith('image/')) {
+        if (fileInput.dataset.isSticker === 'true') {
+            fileType = 'sticker';
+        } else if (file.type.startsWith('image/')) {
             fileType = 'photo';
         } else if (file.type.startsWith('video/')) {
             fileType = 'video';
@@ -171,7 +205,7 @@ fileInput.addEventListener('change', () => {
             body: formData
         }).then(response => {
             if (response.ok) {
-                appendMessage('Вы отправили ' + (fileType === 'photo' ? 'фото' : 'видео'), 'you');
+                appendMessage('Вы отправили ' + (fileType === 'photo' ? 'фото' : fileType === 'video' ? 'видео' : 'стикер'), 'you');
             } else {
                 alert('Ошибка при отправке файла.');
             }
@@ -181,5 +215,14 @@ fileInput.addEventListener('change', () => {
         });
 
         fileInput.value = '';
+        fileInput.accept = 'image/*,video/*';
+        fileInput.dataset.isSticker = 'false';
     }
+});
+
+
+// Событие после сохранения предпочтений
+socket.on('preferencesSaved', () => {
+    selectLookingForDiv.style.display = 'none';
+    startChatDiv.style.display = 'block';
 });

@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <title>Анонимный чат</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
 </head>
+
 <body>
     <div class="container">
         <h1>Анонимный чат</h1>
@@ -37,12 +39,16 @@
             <div id="messageInput">
                 <input type="text" id="message" placeholder="Введите сообщение...">
                 <button id="sendBtn">Отправить</button>
-                <input type="file" id="fileInput" accept="image/*,video/*" style="display: none;">
+                <input type="file" id="fileInput" accept="image/*,video/*" style="display: none;"
+                    data-is-sticker="false">
                 <button id="attachBtn">📎</button>
+                <button id="stickerBtn">😀</button>
             </div>
+
             <button id="endChatBtn">Завершить чат</button>
         </div>
     </div>
     <script src="script.js"></script>
 </body>
+
 </html>
