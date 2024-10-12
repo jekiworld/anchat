@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -10,23 +9,20 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const Chat = require('./models/chat');
-const { getChatBetweenUsers } = require('./chatController');  // Импорт функции
-const User = require('./models/user'); // Импортируем модель пользователя
+const { getChatBetweenUsers } = require('./chatController'); 
+const User = require('./models/user'); 
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Подключаемся к MongoDB
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Подключено к MongoDB'))
     .catch(err => console.error('Ошибка подключения к MongoDB:', err));
 
-// Настраиваем Telegram бота
 const token = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// Устанавливаем команды бота
 const commands = [
     {
         command: 'start',
@@ -40,12 +36,10 @@ const commands = [
 
 bot.setMyCommands(commands);
 
-// Списки для выбора
 const universities = ['Университет А', 'Университет Б', 'Любой университет'];
 const genders = ['Мужской', 'Женский', 'Любой пол'];
 const preferences = ['Мужчин', 'Женщин', 'Любой пол'];
 
-// Настраиваем хранение файлов
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, 'uploads/');
@@ -58,23 +52,19 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// Создаём папку для загрузок, если её нет
 if (!fs.existsSync('uploads')) {
     fs.mkdirSync('uploads');
 }
 
-// Обслуживаем статические файлы
 app.use(express.static(__dirname));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Маршрут для получения чата между пользователями
 app.get('/chat/:userId1/:userId2', async (req, res) => {
     const { userId1, userId2 } = req.params;
     const messages = await getChatBetweenUsers(userId1, userId2);
     res.json(messages);
 });
 
-// Маршрут для загрузки файлов с веб-клиента
 app.post('/upload', upload.single('file'), async (req, res) => {
     const file = req.file;
     const userId = 'ws_' + req.body.userId;
@@ -95,7 +85,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
             } else {
                 const chatId = partnerId.substring(3);
 
-                // Отправляем файл в Telegram
                 if (req.body.type === 'photo') {
                     bot.sendPhoto(chatId, fs.createReadStream(filePath)).catch(console.error);
                 } else if (req.body.type === 'video') {
@@ -104,7 +93,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
                     bot.sendSticker(chatId, fs.createReadStream(filePath)).catch(console.error);
                 }
 
-                // Удаляем файл после отправки
                 setTimeout(() => {
                     fs.unlink(filePath, (err) => {
                         if (err) console.error(err);
@@ -112,7 +100,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
                 }, 60000);
             }
 
-            // Сохраняем сообщение в чате
             await saveMessageInChat(userId, partnerId, `/uploads/${file.filename}`, req.body.type);
         }
         res.sendStatus(200);
@@ -122,16 +109,13 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 
-// Обработчик команды /start
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId;
 
-    // Проверяем, есть ли пользователь в базе данных
     let user = await User.findOne({ telegramId: userId });
 
     if (user && user.university && user.gender && user.lookingFor) {
-        // Если пользователь уже зарегистрирован и есть данные, продолжаем
         bot.sendMessage(chatId, 'Вы уже зарегистрированы. Что вы хотите сделать?', {
             reply_markup: {
                 keyboard: [
@@ -144,7 +128,6 @@ bot.onText(/\/start/, async (msg) => {
             }
         });
     } else {
-        // Если пользователя нет в базе, создаём его и запрашиваем данные
         user = new User({
             telegramId: userId,
             status: 'idle',
@@ -165,7 +148,6 @@ bot.onText(/\/start/, async (msg) => {
     }
 });
 
-// Обработчик команды /end
 bot.onText(/\/end/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId;
@@ -185,7 +167,6 @@ bot.onText(/\/end/, async (msg) => {
 });
 
 
-// Обработчик сообщений от пользователя
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const userId = 'tg_' + chatId;
@@ -204,16 +185,13 @@ bot.on('message', async (msg) => {
 
     if (msg.entities && msg.entities.some(entity => entity.type === 'bot_command')) {
         if (text === '/end') {
-            // Команда /end уже обрабатывается в отдельном обработчике
             return;
         } else {
-            // Игнорируем другие команды
             return;
         }
     }
 
 
-    // Обработка команды "Изменить предпочтения"
     if (text === 'Изменить предпочтения') {
         user.university = null;
         user.gender = null;
@@ -235,7 +213,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Проверка выбора университета
     if (!user.university) {
         if (universities.includes(text)) {
             user.university = text;
@@ -266,7 +243,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Проверка выбора пола
     if (!user.gender) {
         if (genders.includes(text)) {
             user.gender = text;
@@ -297,7 +273,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Проверка выбора предпочтений
     if (!user.lookingFor) {
         if (preferences.includes(text)) {
             user.lookingFor = text === 'Мужчин' ? 'Мужской' : text === 'Женщин' ? 'Женский' : 'Любой пол';
@@ -329,7 +304,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Обработка команды "Найти нового собеседника"
     if (text === 'Найти нового собеседника') {
         await endChatForUser(userId);
 
@@ -341,7 +315,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Обработка команды "Завершить чат"
     if (text === 'Завершить чат') {
         await endChatForUser(userId);
         bot.sendMessage(chatId, 'Вы завершили чат.', {
@@ -357,11 +330,9 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Пересылка сообщений между пользователями
     if (user.partnerId) {
         const partner = await User.findOne({ telegramId: user.partnerId });
         if (partner) {
-            // Обработка текстовых сообщений
             if (text) {
                 if (partner.isWebUser) {
                     const socketId = partner.telegramId.substring(3);
@@ -371,16 +342,13 @@ bot.on('message', async (msg) => {
                     bot.sendMessage(partnerChatId, text);
                 }
 
-                // Сохранение сообщения в переписку
                 await saveMessageInChat(userId, partner.telegramId, text, 'text');
             }
 
-            // Обработка фото
             else if (msg.photo) {
                 const photo = msg.photo[msg.photo.length - 1];
                 const fileId = photo.file_id;
 
-                // Получаем ссылку на файл
                 const file = await bot.getFile(fileId);
                 const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
@@ -392,16 +360,13 @@ bot.on('message', async (msg) => {
                     bot.sendPhoto(partnerChatId, fileId).catch(console.error);
                 }
 
-                // Сохранение фото в переписку
                 await saveMessageInChat(userId, partner.telegramId, fileUrl, 'photo');
             }
 
-            // Обработка видео
             else if (msg.video) {
                 const video = msg.video;
                 const fileId = video.file_id;
 
-                // Получаем ссылку на файл
                 const file = await bot.getFile(fileId);
                 const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
@@ -413,16 +378,13 @@ bot.on('message', async (msg) => {
                     bot.sendVideo(partnerChatId, fileId).catch(console.error);
                 }
 
-                // Сохранение видео в переписку
                 await saveMessageInChat(userId, partner.telegramId, fileUrl, 'video');
             }
 
-            // Обработка видео-сообщений (кружков)
             else if (msg.video_note) {
                 const videoNote = msg.video_note;
                 const fileId = videoNote.file_id;
 
-                // Получаем ссылку на файл
                 const file = await bot.getFile(fileId);
                 const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
@@ -434,17 +396,15 @@ bot.on('message', async (msg) => {
                     bot.sendVideoNote(partnerChatId, fileId).catch(console.error);
                 }
 
-                // Сохранение видео-сообщения в переписку
                 await saveMessageInChat(userId, partner.telegramId, fileUrl, 'video_note');
             }
-
+            
 
             else if (msg.sticker) {
                 const sticker = msg.sticker;
                 const fileId = sticker.file_id;
 
                 if (partner.isWebUser) {
-                    // Получаем ссылку на файл
                     const file = await bot.getFile(fileId);
                     const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
@@ -455,24 +415,8 @@ bot.on('message', async (msg) => {
                     bot.sendSticker(partnerChatId, fileId).catch(console.error);
                 }
 
-                // Сохранение стикера в переписку
                 await saveMessageInChat(userId, partner.telegramId, fileId, 'sticker');
             }
-            else if (msg.location) {
-                const location = msg.location;
-                const locationMessage = `Широта: ${location.latitude}, Долгота: ${location.longitude}`;
-
-                if (partner.isWebUser) {
-                    const socketId = partner.telegramId.substring(3);
-                    io.to(socketId).emit('receiveMessage', { type: 'location', content: locationMessage });
-                } else {
-                    const partnerChatId = partner.telegramId.substring(3);
-                    bot.sendMessage(partnerChatId, locationMessage);
-                }
-
-                await saveMessageInChat(userId, partner.telegramId, locationMessage, 'location');
-            }
-            // Обработка других типов сообщений
             else {
                 bot.sendMessage(chatId, 'Извините, этот тип сообщений не поддерживается.');
             }
@@ -491,7 +435,6 @@ bot.on('message', async (msg) => {
     }
 });
 
-// Функция для поиска партнёра
 async function findPartnerForUser(userId) {
     let user = await User.findOne({ telegramId: userId });
 
@@ -564,7 +507,6 @@ async function findPartnerForUser(userId) {
 
 
 
-// Функция для завершения чата
 async function endChatForUser(userId) {
     let user = await User.findOne({ telegramId: userId });
 
@@ -572,7 +514,6 @@ async function endChatForUser(userId) {
         let partner = await User.findOne({ telegramId: user.partnerId });
 
         if (partner) {
-            // Уведомляем партнёра
             if (partner.isWebUser) {
                 const socketId = partner.telegramId.substring(3);
                 io.to(socketId).emit('chatEnded', 'Ваш собеседник завершил диалог.');
@@ -590,13 +531,11 @@ async function endChatForUser(userId) {
                 });
             }
 
-            // Обновляем данные партнёра
             partner.partnerId = null;
             partner.status = 'idle';
             await partner.save();
         }
 
-        // Обновляем данные пользователя
         user.partnerId = null;
         user.status = 'idle';
         await user.save();
@@ -604,11 +543,9 @@ async function endChatForUser(userId) {
 }
 
 
-// Обработчик веб-сокетов
 io.on('connection', (socket) => {
     const userId = 'ws_' + socket.id;
 
-    // Создаём пользователя в базе данных
     let user = new User({
         telegramId: userId,
         status: 'idle',
@@ -616,7 +553,6 @@ io.on('connection', (socket) => {
     });
     user.save();
 
-    // Обработка событий от веб-клиента
     socket.on('selectUniversity', async (university) => {
         user.university = university;
         await user.save();
@@ -632,7 +568,6 @@ io.on('connection', (socket) => {
         user.status = 'idle';
         await user.save();
 
-        // После выбора всех предпочтений можно предложить начать поиск
         socket.emit('preferencesSaved');
     });
 
@@ -645,13 +580,13 @@ io.on('connection', (socket) => {
     socket.on('sendMessage', async (data) => {
         const user = await User.findOne({ telegramId: 'ws_' + socket.id });
         const partnerId = user.partnerId;
-
+    
         if (partnerId) {
             const partner = await User.findOne({ telegramId: partnerId });
             if (partner) {
                 // Сохранение сообщения в чате
                 await saveMessageInChat(user.telegramId, partner.telegramId, data.content, data.type);
-
+    
                 if (partner.isWebUser) {
                     const socketId = partner.telegramId.substring(3);
                     io.to(socketId).emit('receiveMessage', data);
@@ -672,7 +607,7 @@ io.on('connection', (socket) => {
             socket.emit('noPartner', 'У вас нет активного собеседника.');
         }
     });
-
+    
 
     socket.on('endChat', async () => {
         await endChatForUser(userId);
@@ -707,39 +642,33 @@ io.on('connection', (socket) => {
                     await partner.save();
                 }
             }
-            await user.deleteOne();  // Удаляем пользователя из базы
+            await user.deleteOne(); 
         }
     });
 });
 
-// Запускаем сервер
 const PORT = 3000;
 server.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
 });
 
-// Функция для сохранения сообщений в чат
 const saveMessageInChat = async (senderId, receiverId, content, messageType) => {
     try {
-        // Поиск существующего чата между двумя пользователями
         let chat = await Chat.findOne({ participants: { $all: [senderId, receiverId] } });
 
         if (!chat) {
-            // Если чат не найден, создаём новый
             chat = new Chat({
                 participants: [senderId, receiverId],
                 messages: []
             });
         }
 
-        // Добавляем новое сообщение в массив сообщений
         chat.messages.push({
             senderId,
             content,
             messageType
         });
 
-        // Сохраняем обновлённый чат
         await chat.save();
         console.log('Сообщение успешно добавлено в чат.');
     } catch (error) {
