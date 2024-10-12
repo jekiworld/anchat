@@ -9,8 +9,8 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const Chat = require('./models/chat');
-const { getChatBetweenUsers } = require('./chatController'); 
-const User = require('./models/user'); 
+const { getChatBetweenUsers } = require('./chatController');
+const User = require('./models/user');
 
 const app = express();
 const server = http.createServer(app);
@@ -36,7 +36,7 @@ const commands = [
 
 bot.setMyCommands(commands);
 
-const universities = ['Университет А', 'Университет Б', 'Любой университет'];
+const universities = ['КБТУ', 'Скоро', 'Скоро - 2'];
 const genders = ['Мужской', 'Женский', 'Любой пол'];
 const preferences = ['Мужчин', 'Женщин', 'Любой пол'];
 
@@ -138,8 +138,8 @@ bot.onText(/\/start/, async (msg) => {
         bot.sendMessage(chatId, 'Привет! Пожалуйста, выберите свой университет:', {
             reply_markup: {
                 keyboard: [
-                    [{ text: 'Университет А' }, { text: 'Университет Б' }],
-                    [{ text: 'Любой университет' }]
+                    [{ text: 'КБТУ' }, { text: 'Скоро' }],
+                    [{ text: 'Скоро - 2' }]
                 ],
                 resize_keyboard: true,
                 one_time_keyboard: true
@@ -203,8 +203,8 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, 'Предпочтения сброшены. Выберите университет:', {
             reply_markup: {
                 keyboard: [
-                    [{ text: 'Университет А' }, { text: 'Университет Б' }],
-                    [{ text: 'Любой университет' }]
+                    [{ text: 'КБТУ' }, { text: 'Скоро' }],
+                    [{ text: 'Скоро - 2' }]
                 ],
                 resize_keyboard: true,
                 one_time_keyboard: true
@@ -232,8 +232,8 @@ bot.on('message', async (msg) => {
             bot.sendMessage(chatId, 'Пожалуйста, выберите свой университет:', {
                 reply_markup: {
                     keyboard: [
-                        [{ text: 'Университет А' }, { text: 'Университет Б' }],
-                        [{ text: 'Любой университет' }]
+                        [{ text: 'КБТУ' }, { text: 'Скоро' }],
+                        [{ text: 'Скоро - 2' }]
                     ],
                     resize_keyboard: true,
                     one_time_keyboard: true
@@ -398,7 +398,7 @@ bot.on('message', async (msg) => {
 
                 await saveMessageInChat(userId, partner.telegramId, fileUrl, 'video_note');
             }
-            
+
 
             else if (msg.sticker) {
                 const sticker = msg.sticker;
@@ -435,6 +435,8 @@ bot.on('message', async (msg) => {
     }
 });
 
+let activeChats = 0;  // Счетчик для активных чатов
+
 async function findPartnerForUser(userId) {
     let user = await User.findOne({ telegramId: userId });
 
@@ -448,9 +450,9 @@ async function findPartnerForUser(userId) {
         partnerId: null,
         status: 'waiting',
         $or: [
-            { university: 'Любой университет' },
+            { university: 'Скоро - 2' },
             { university: user.university },
-            { university: 'Любой университет' }
+            { university: 'Скоро - 2' }
         ],
         $or: [
             { gender: user.lookingFor },
@@ -486,6 +488,9 @@ async function findPartnerForUser(userId) {
     partner.partnerId = userId;
     partner.status = 'chatting';
     await partner.save();
+
+    activeChats++;  // Увеличиваем счетчик активных чатов
+    console.log(`Чат начат, активные чаты: ${activeChats}`);
 
     // Уведомляем пользователей
     if (user.isWebUser) {
@@ -539,6 +544,10 @@ async function endChatForUser(userId) {
         user.partnerId = null;
         user.status = 'idle';
         await user.save();
+
+        activeChats--;
+        console.log(`Чат закончен, активные чаты: ${activeChats}`);
+
     }
 }
 
@@ -580,13 +589,13 @@ io.on('connection', (socket) => {
     socket.on('sendMessage', async (data) => {
         const user = await User.findOne({ telegramId: 'ws_' + socket.id });
         const partnerId = user.partnerId;
-    
+
         if (partnerId) {
             const partner = await User.findOne({ telegramId: partnerId });
             if (partner) {
                 // Сохранение сообщения в чате
                 await saveMessageInChat(user.telegramId, partner.telegramId, data.content, data.type);
-    
+
                 if (partner.isWebUser) {
                     const socketId = partner.telegramId.substring(3);
                     io.to(socketId).emit('receiveMessage', data);
@@ -607,7 +616,7 @@ io.on('connection', (socket) => {
             socket.emit('noPartner', 'У вас нет активного собеседника.');
         }
     });
-    
+
 
     socket.on('endChat', async () => {
         await endChatForUser(userId);
@@ -642,9 +651,13 @@ io.on('connection', (socket) => {
                     await partner.save();
                 }
             }
-            await user.deleteOne(); 
+            await user.deleteOne();
         }
     });
+});
+
+app.get('/active-chats', (req, res) => {
+    res.json({ activeChats });
 });
 
 const PORT = 3000;
